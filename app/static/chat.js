@@ -12,6 +12,11 @@ if (!sessionId) {
 let ws = null;
 let isStreaming = false;
 let currentMessageDiv = null;
+
+// ── Voice / TTS state ──────────────────────────────────────────
+let ttsVoice = null;
+let ttsAutoSpeak = localStorage.getItem('ramanujan_auto_voice') === 'true';
+let ttsSpeaking = false;
 let currentContentDiv = null;
 
 // DOM Elements
@@ -39,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadHistory();
     loadSessions();
     setupEventListeners();
+    initTTS();
     
     // Auto-resize textarea
     messageInput.addEventListener('input', function() {
@@ -221,6 +227,7 @@ function handleIncomingMessage(data) {
         
     } else if (data.type === 'end') {
         isStreaming = false;
+        const rawText = currentContentDiv ? currentContentDiv.dataset.rawText : '';
         // Final render with KaTeX
         if (currentContentDiv && window.renderMathInElement) {
             // First basic markdown to HTML conversion (simple version)
@@ -239,6 +246,16 @@ function handleIncomingMessage(data) {
                 throwOnError: false
             });
         }
+        
+        // Add voice button to the completed message
+        if (currentMessageDiv && rawText) {
+            addVoiceButton(currentMessageDiv, rawText);
+            // Auto-speak if enabled
+            if (ttsAutoSpeak) {
+                speakText(rawText);
+            }
+        }
+        
         currentContentDiv = null;
         currentMessageDiv = null;
         
@@ -374,14 +391,17 @@ async function loadHistory() {
                     div.innerHTML = `<div class="message-content">${parseBasicMarkdown(msg.content)}</div>`;
                     messagesContainer.appendChild(div);
                     
-                    if (msg.role === 'assistant' && window.renderMathInElement) {
-                        renderMathInElement(div.querySelector('.message-content'), {
-                            delimiters: [
-                                {left: '$$', right: '$$', display: true},
-                                {left: '$', right: '$', display: false}
-                            ],
-                            throwOnError: false
-                        });
+                    if (msg.role === 'assistant') {
+                        if (window.renderMathInElement) {
+                            renderMathInElement(div.querySelector('.message-content'), {
+                                delimiters: [
+                                    {left: '$$', right: '$$', display: true},
+                                    {left: '$', right: '$', display: false}
+                                ],
+                                throwOnError: false
+                            });
+                        }
+                        addVoiceButton(div, msg.content);
                     }
                 });
                 scrollToBottom();
@@ -431,4 +451,273 @@ async function loadSessions() {
     } catch (e) {
         console.error("Failed to load sessions:", e);
     }
+}
+
+// ── Voice / TTS Engine ───────────────────────────────────────────
+
+let ttsQueue = [];      // Queue of sentence chunks to speak
+let ttsCurrentBtn = null; // Currently active speak button
+
+function initTTS() {
+    if (!('speechSynthesis' in window)) {
+        console.warn('Web Speech API not supported in this browser');
+        const toggleBtn = document.getElementById('voice-toggle');
+        if (toggleBtn) toggleBtn.style.display = 'none';
+        return;
+    }
+    
+    // Load voices (some browsers load them asynchronously)
+    function pickVoice() {
+        const voices = speechSynthesis.getVoices();
+        if (!voices.length) return;
+        
+        // Priority: Indian English > British English > any English
+        // Also match common Windows/Google voice names
+        const priorities = [
+            v => v.lang === 'en-IN',
+            v => v.lang.startsWith('en-IN'),
+            v => /ravi|neerja|india/i.test(v.name) && v.lang.startsWith('en'),
+            v => v.lang === 'en-GB' && /male|daniel|george|ryan/i.test(v.name),
+            v => v.lang === 'en-GB',
+            v => v.lang.startsWith('en') && /male|david|mark|james/i.test(v.name) && !/female|zira|eva/i.test(v.name),
+            v => v.lang.startsWith('en'),
+        ];
+        
+        for (const test of priorities) {
+            const match = voices.find(test);
+            if (match) { ttsVoice = match; break; }
+        }
+        
+        if (!ttsVoice) ttsVoice = voices[0];
+        console.log('TTS voice selected:', ttsVoice.name, '(' + ttsVoice.lang + ')');
+    }
+    
+    pickVoice();
+    speechSynthesis.onvoiceschanged = pickVoice;
+    
+    // Wire up global auto-speak toggle
+    const toggleBtn = document.getElementById('voice-toggle');
+    if (toggleBtn) {
+        if (ttsAutoSpeak) toggleBtn.classList.add('active');
+        
+        toggleBtn.addEventListener('click', () => {
+            ttsAutoSpeak = !ttsAutoSpeak;
+            localStorage.setItem('ramanujan_auto_voice', ttsAutoSpeak);
+            toggleBtn.classList.toggle('active', ttsAutoSpeak);
+            
+            if (!ttsAutoSpeak) stopSpeaking();
+        });
+    }
+}
+
+/**
+ * Clean raw response text into natural, speakable sentences.
+ */
+function stripForSpeech(text) {
+    let clean = text;
+    
+    // Convert common math symbols to spoken words
+    clean = clean.replace(/π/g, 'pi');
+    clean = clean.replace(/∞/g, 'infinity');
+    clean = clean.replace(/∑/g, 'sum of');
+    clean = clean.replace(/∏/g, 'product of');
+    clean = clean.replace(/√/g, 'square root of');
+    clean = clean.replace(/≈/g, 'approximately equals');
+    clean = clean.replace(/≠/g, 'does not equal');
+    clean = clean.replace(/≤/g, 'less than or equal to');
+    clean = clean.replace(/≥/g, 'greater than or equal to');
+    clean = clean.replace(/×/g, 'times');
+    clean = clean.replace(/÷/g, 'divided by');
+    
+    // Read simple inline math naturally: $x = 5$ → "x equals 5"
+    clean = clean.replace(/\$([^$]{1,30})\$/g, (_, expr) => {
+        let readable = expr.trim();
+        readable = readable.replace(/\^(\d+)/g, ' to the power $1');
+        readable = readable.replace(/\^{([^}]+)}/g, ' to the power $1');
+        readable = readable.replace(/_(\d)/g, ' sub $1');
+        readable = readable.replace(/_{([^}]+)}/g, ' sub $1');
+        readable = readable.replace(/\\frac{([^}]+)}{([^}]+)}/g, '$1 over $2');
+        readable = readable.replace(/\\sqrt{([^}]+)}/g, 'square root of $1');
+        readable = readable.replace(/\\pi/g, 'pi');
+        readable = readable.replace(/\\infty/g, 'infinity');
+        readable = readable.replace(/\\sum/g, 'sum of');
+        readable = readable.replace(/\\[a-zA-Z]+/g, ''); // strip remaining LaTeX commands
+        readable = readable.replace(/[{}]/g, '');
+        readable = readable.replace(/=/g, ' equals ');
+        return readable;
+    });
+    
+    // Remove complex display math blocks but acknowledge them
+    clean = clean.replace(/\$\$[\s\S]*?\$\$/g, '. The following is a mathematical formula. ');
+    clean = clean.replace(/\\\[[\s\S]*?\\\]/g, '. The following is a mathematical formula. ');
+    clean = clean.replace(/\\\([\s\S]*?\\\)/g, '');
+    
+    // Remove markdown formatting but keep the text
+    clean = clean.replace(/```[\s\S]*?```/g, '. ');
+    clean = clean.replace(/`([^`]+)`/g, '$1');
+    clean = clean.replace(/\*\*(.*?)\*\*/g, '$1');
+    clean = clean.replace(/\*(.*?)\*/g, '$1');
+    clean = clean.replace(/#{1,6}\s*/g, '');
+    clean = clean.replace(/[-*]\s+/g, '. ');  // bullet points → pauses
+    clean = clean.replace(/\d+\.\s+/g, '. ');  // numbered lists → pauses
+    
+    // Clean up whitespace and punctuation
+    clean = clean.replace(/\n+/g, '. ');
+    clean = clean.replace(/\.{2,}/g, '.');
+    clean = clean.replace(/\.\s*\./g, '.');
+    clean = clean.replace(/\s{2,}/g, ' ');
+    
+    return clean.trim();
+}
+
+/**
+ * Split text into sentence-sized chunks.
+ * Browsers cut off utterances longer than ~200-300 chars,
+ * so we break at sentence boundaries.
+ */
+function splitIntoChunks(text) {
+    // Split on sentence-ending punctuation followed by space
+    const raw = text.match(/[^.!?]+[.!?]+[\s]*/g) || [text];
+    const chunks = [];
+    let current = '';
+    
+    for (const sentence of raw) {
+        if ((current + sentence).length > 180) {
+            if (current.trim()) chunks.push(current.trim());
+            current = sentence;
+        } else {
+            current += sentence;
+        }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    
+    return chunks;
+}
+
+/**
+ * Speak text aloud, sentence by sentence.
+ */
+function speakText(rawText, button = null) {
+    if (!('speechSynthesis' in window)) return;
+    
+    // Stop any current speech first
+    stopSpeaking();
+    
+    const clean = stripForSpeech(rawText);
+    if (!clean) return;
+    
+    ttsQueue = splitIntoChunks(clean);
+    ttsCurrentBtn = button;
+    
+    if (button) {
+        button.classList.add('speaking');
+        button.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="6" y="4" width="4" height="16"></rect>
+                <rect x="14" y="4" width="4" height="16"></rect>
+            </svg>
+            Stop
+        `;
+    }
+    
+    speakNextChunk();
+}
+
+/**
+ * Speak the next chunk in the queue.
+ */
+function speakNextChunk() {
+    if (ttsQueue.length === 0) {
+        finishSpeaking();
+        return;
+    }
+    
+    const chunk = ttsQueue.shift();
+    if (!chunk.trim()) {
+        speakNextChunk();
+        return;
+    }
+    
+    console.log('TTS Speaking:', chunk);
+    
+    const utterance = new SpeechSynthesisUtterance(chunk);
+    // Anti-Garbage-Collection fix for Chrome/Safari
+    window.currentUtterance = utterance;
+    
+    if (ttsVoice) utterance.voice = ttsVoice;
+    utterance.rate = 0.92;    // Clear, unhurried pace
+    utterance.pitch = 0.95;   // Slightly deeper tone
+    utterance.volume = 1.0;
+    
+    utterance.onend = () => {
+        // Small pause between sentences for natural flow
+        setTimeout(speakNextChunk, 150);
+    };
+    
+    utterance.onerror = (e) => {
+        console.warn('TTS chunk error:', e.error);
+        // Try the next chunk anyway
+        setTimeout(speakNextChunk, 100);
+    };
+    
+    speechSynthesis.speak(utterance);
+}
+
+/**
+ * Stop all speech and reset UI.
+ */
+function stopSpeaking() {
+    ttsQueue = [];
+    speechSynthesis.cancel();
+    
+    if (ttsCurrentBtn) {
+        ttsCurrentBtn.classList.remove('speaking');
+        resetVoiceBtnLabel(ttsCurrentBtn);
+        ttsCurrentBtn = null;
+    }
+    // Reset any other speaking buttons
+    document.querySelectorAll('.voice-btn.speaking').forEach(b => {
+        b.classList.remove('speaking');
+        resetVoiceBtnLabel(b);
+    });
+}
+
+function finishSpeaking() {
+    if (ttsCurrentBtn) {
+        ttsCurrentBtn.classList.remove('speaking');
+        resetVoiceBtnLabel(ttsCurrentBtn);
+        ttsCurrentBtn = null;
+    }
+}
+
+function resetVoiceBtnLabel(btn) {
+    btn.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        </svg>
+        Listen
+    `;
+}
+
+/**
+ * Add a speak/stop button to an assistant message div.
+ */
+function addVoiceButton(messageDiv, rawText) {
+    if (!('speechSynthesis' in window)) return;
+    
+    const btn = document.createElement('button');
+    btn.className = 'voice-btn';
+    btn.title = 'Read aloud';
+    resetVoiceBtnLabel(btn);
+    
+    btn.addEventListener('click', () => {
+        if (btn.classList.contains('speaking')) {
+            stopSpeaking();
+            return;
+        }
+        speakText(rawText, btn);
+    });
+    
+    messageDiv.appendChild(btn);
 }

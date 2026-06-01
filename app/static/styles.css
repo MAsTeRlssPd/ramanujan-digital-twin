@@ -581,3 +581,85 @@ body {
     text-overflow: ellipsis;
 }
 
+/* ── Voice / TTS Controls ──────────────────────────────────── */
+
+/* Per-message speak button */
+.voice-btn {
+    background: none;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+    transition: var(--transition-fast);
+    font-family: var(--font-ui);
+}
+
+.voice-btn:hover {
+    background: var(--accent-light);
+    border-color: var(--accent-gold);
+    color: var(--accent-dark);
+}
+
+.voice-btn.speaking {
+    background: var(--accent-light);
+    border-color: var(--accent-gold);
+    color: var(--accent-dark);
+    animation: voicePulse 1.5s ease-in-out infinite;
+}
+
+.voice-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+@keyframes voicePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(201, 169, 78, 0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(201, 169, 78, 0); }
+}
+
+/* Global voice toggle in header */
+.voice-toggle {
+    background: none;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.4rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    transition: var(--transition-fast);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+}
+
+.voice-toggle:hover {
+    background: var(--accent-light);
+    border-color: var(--accent-gold);
+    color: var(--accent-dark);
+}
+
+.voice-toggle.active {
+    background: var(--accent-light);
+    border-color: var(--accent-gold);
+    color: var(--accent-dark);
+}
+
+.voice-toggle svg {
+    width: 16px;
+    height: 16px;
+}
+
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
