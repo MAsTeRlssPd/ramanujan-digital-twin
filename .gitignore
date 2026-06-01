@@ -1,0 +1,17 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+*.pyo
+
+# Data (generated at runtime)
+data/chroma_db/
+data/memory.db
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
