@@ -228,23 +228,9 @@ function handleIncomingMessage(data) {
     } else if (data.type === 'end') {
         isStreaming = false;
         const rawText = currentContentDiv ? currentContentDiv.dataset.rawText : '';
-        // Final render with KaTeX
-        if (currentContentDiv && window.renderMathInElement) {
-            // First basic markdown to HTML conversion (simple version)
-            let finalHtml = currentContentDiv.dataset.rawText;
-            finalHtml = parseBasicMarkdown(finalHtml);
-            currentContentDiv.innerHTML = finalHtml;
-            
-            // Render Math
-            renderMathInElement(currentContentDiv, {
-                delimiters: [
-                    {left: '$$', right: '$$', display: true},
-                    {left: '$', right: '$', display: false},
-                    {left: '\\(', right: '\\)', display: false},
-                    {left: '\\[', right: '\\]', display: true}
-                ],
-                throwOnError: false
-            });
+        // Final render with KaTeX and Plots
+        if (currentContentDiv) {
+            renderContent(currentContentDiv, currentContentDiv.dataset.rawText);
         }
         
         // Add voice button to the completed message
@@ -366,6 +352,115 @@ function formatTextBasic(text) {
     return escapeHTML(text).replace(/\n/g, '<br>');
 }
 
+// Unified rendering for Markdown, Math (KaTeX), and Plots (function-plot, Plotly)
+function renderContent(element, rawText) {
+    let plotConfigs = [];
+    let uniqueId = Math.random().toString(36).substr(2, 9);
+    
+    // Extract 2D plot blocks before escaping HTML
+    let processedText = rawText.replace(/```plot\s*\n([\s\S]*?)```/gi, (match, configStr) => {
+        const id = plotConfigs.length;
+        plotConfigs.push({type: '2d', config: configStr});
+        return `PLOT_PLACEHOLDER_${id}`;
+    });
+
+    // Extract 3D plot blocks
+    processedText = processedText.replace(/```plot3d\s*\n([\s\S]*?)```/gi, (match, configStr) => {
+        const id = plotConfigs.length;
+        plotConfigs.push({type: '3d', config: configStr});
+        return `PLOT_PLACEHOLDER_${id}`;
+    });
+
+    let finalHtml = parseBasicMarkdown(processedText);
+    
+    // Inject placeholder divs for plots
+    plotConfigs.forEach((_, index) => {
+        finalHtml = finalHtml.replace(`PLOT_PLACEHOLDER_${index}`, `<div class="plot-container" id="plot-${uniqueId}-${index}" style="margin: 15px 0; background: white; border-radius: 8px; padding: 10px; overflow: hidden; display: flex; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>`);
+    });
+    
+    element.innerHTML = finalHtml;
+    
+    // Render Math
+    if (window.renderMathInElement) {
+        renderMathInElement(element, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\(', right: '\\)', display: false},
+                {left: '\\[', right: '\\]', display: true}
+            ],
+            throwOnError: false
+        });
+    }
+    
+    // Render Plots
+    plotConfigs.forEach((plot, index) => {
+        const targetId = `plot-${uniqueId}-${index}`;
+        try {
+            let config = JSON.parse(plot.config);
+            if (plot.type === '2d') {
+                config.target = `#${targetId}`;
+                if (!config.width) config.width = 450;
+                if (!config.height) config.height = 300;
+                if (typeof config.grid === 'undefined') config.grid = true;
+                if (window.functionPlot) {
+                    window.functionPlot(config);
+                }
+            } else if (plot.type === '3d') {
+                const targetElement = element.querySelector(`#${targetId}`);
+                if (window.Plotly && window.math && targetElement) {
+                    if (config.type === 'surface' && config.f) {
+                        const compiledNode = window.math.compile(config.f);
+                        let xRange = config.xRange || [-5, 5];
+                        let yRange = config.yRange || [-5, 5];
+                        let steps = 40;
+                        let xStep = (xRange[1] - xRange[0]) / steps;
+                        let yStep = (yRange[1] - yRange[0]) / steps;
+                        
+                        let x = [], y = [], z = [];
+                        for (let i = 0; i <= steps; i++) {
+                            let yi = yRange[0] + i * yStep;
+                            y.push(yi);
+                            let zRow = [];
+                            for (let j = 0; j <= steps; j++) {
+                                if (i === 0) x.push(xRange[0] + j * xStep);
+                                let xj = xRange[0] + j * xStep;
+                                try {
+                                    zRow.push(compiledNode.evaluate({x: xj, y: yi}));
+                                } catch(err) {
+                                    zRow.push(0);
+                                }
+                            }
+                            z.push(zRow);
+                        }
+                        
+                        let data = [{
+                            z: z,
+                            x: x,
+                            y: y,
+                            type: 'surface',
+                            colorscale: 'Viridis'
+                        }];
+                        
+                        let layout = {
+                            title: config.title || '3D Surface',
+                            width: 500,
+                            height: 450,
+                            margin: {l: 0, r: 0, b: 0, t: 30}
+                        };
+                        
+                        Plotly.newPlot(targetElement, data, layout);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Plot parsing error", e);
+            const container = element.querySelector(`#${targetId}`);
+            if(container) container.innerHTML = `<div style="color:red; padding: 10px;">Failed to render plot.</div>`;
+        }
+    });
+}
+
 function escapeHTML(str) {
     return str
         .replace(/&/g, '&amp;')
@@ -388,19 +483,15 @@ async function loadHistory() {
                 data.history.forEach(msg => {
                     const div = document.createElement('div');
                     div.className = `message ${msg.role}-message`;
-                    div.innerHTML = `<div class="message-content">${parseBasicMarkdown(msg.content)}</div>`;
+                    
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'message-content';
+                    div.appendChild(contentDiv);
                     messagesContainer.appendChild(div);
                     
+                    renderContent(contentDiv, msg.content);
+                    
                     if (msg.role === 'assistant') {
-                        if (window.renderMathInElement) {
-                            renderMathInElement(div.querySelector('.message-content'), {
-                                delimiters: [
-                                    {left: '$$', right: '$$', display: true},
-                                    {left: '$', right: '$', display: false}
-                                ],
-                                throwOnError: false
-                            });
-                        }
                         addVoiceButton(div, msg.content);
                     }
                 });

@@ -2,15 +2,16 @@
 
 > *"An equation has no meaning to me unless it expresses a thought of God."* — Srinivasa Ramanujan
 
-A Digital Twin of **Srinivasa Ramanujan (1887–1920)**, the self-taught mathematical genius from Tamil Nadu. This AI agent faithfully emulates Ramanujan's voice, mathematical knowledge, and reasoning style — grounded in his actual notebooks, papers, and letters via a RAG pipeline, with persistent memory across sessions.
+A Digital Twin of **Srinivasa Ramanujan (1887–1920)**, the self-taught mathematical genius from Tamil Nadu. This AI agent faithfully emulates Ramanujan's voice, mathematical knowledge, and reasoning style, grounded in his actual notebooks, papers, and letters via a RAG pipeline, with persistent memory across sessions.
 
 ## ✨ Features
 
-- **Authentic Persona**: Speaks as Ramanujan in first person — humble, spiritual, mathematically profound
+- **Authentic Persona**: Speaks as Ramanujan in first person, humble, spiritual, mathematically profound
 - **RAG Pipeline**: Grounded in ~19 curated documents from Ramanujan's actual work (notebooks, papers, letters, biographical sources)
 - **Dual Memory System**: Short-term conversation history + long-term persistent memory across sessions
 - **Streaming Chat**: Real-time WebSocket streaming for natural conversation flow
 - **Math Rendering**: LaTeX formulas rendered beautifully via KaTeX
+- **Interactive Graphing**: 2D and 3D visualizations of mathematical functions using function-plot and Plotly.js
 - **Memory Dashboard**: Visual display of what Ramanujan "remembers" about you
 - **Life Timeline**: Interactive timeline of Ramanujan's life (1887–1920)
 - **Timeline Awareness**: Gracefully handles questions about post-1920 events
@@ -73,7 +74,7 @@ Open **http://localhost:8000** in your browser.
 │   ├── main.py          # Routes & WebSocket
 │   ├── chat_handler.py  # Chat orchestration
 │   └── static/          # HTML/CSS/JS frontend
-├── data/                # Runtime data (ChromaDB, SQLite) — gitignored
+├── data/                # Runtime data (ChromaDB, SQLite) - gitignored
 ├── config.py            # Central configuration
 ├── run.py               # Entry point
 └── requirements.txt     # Dependencies

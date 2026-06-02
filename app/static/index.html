@@ -15,6 +15,12 @@
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous"></script>
     
+    <!-- Graphing (function-plot, Plotly, Math.js) -->
+    <script src="https://unpkg.com/d3@7"></script>
+    <script src="https://unpkg.com/function-plot@1/dist/function-plot.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/13.0.0/math.min.js"></script>
+
     <!-- Custom Styles -->
     <link rel="stylesheet" href="/static/styles.css">
 </head>
@@ -52,8 +58,10 @@
                 <div class="sidebar-content" id="sessions-content">
                     <!-- Sessions injected here -->
                 </div>
-                <!-- Hidden timeline container to prevent JS errors if timeline.js is kept -->
-                <div id="timeline-content" style="display:none;"></div>
+                <div class="sidebar-header" style="margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                    <h2>Timeline</h2>
+                </div>
+                <div id="timeline-content" class="sidebar-content"></div>
             </aside>
 
             <!-- Center: Chat Interface -->
