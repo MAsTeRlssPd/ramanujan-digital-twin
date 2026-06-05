@@ -70,9 +70,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function buildRecognition() {
             const r = new SpeechRecognition();
-            r.continuous = false;
+            r.continuous = true;        // keep listening without gaps
             r.interimResults = true;
-            r.lang = 'en-IN';
+            r.maxAlternatives = 3;      // consider more hypotheses for better accuracy
+            r.lang = 'en-IN';           // Indian English
 
             r.onstart = () => {
                 micBtn.classList.add('listening');
@@ -82,9 +83,10 @@ document.addEventListener('DOMContentLoaded', () => {
             r.onresult = (event) => {
                 let interim = '';
                 for (let i = event.resultIndex; i < event.results.length; i++) {
+                    // Pick the best alternative (index 0 has highest confidence)
                     const t = event.results[i][0].transcript;
                     if (event.results[i].isFinal) {
-                        accumulated += (accumulated && !accumulated.endsWith(' ') ? ' ' : '') + t;
+                        accumulated += (accumulated && !accumulated.endsWith(' ') ? ' ' : '') + t.trim();
                     } else {
                         interim += t;
                     }
@@ -94,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
 
             r.onerror = (event) => {
+                console.warn('Speech recognition error:', event.error);
                 if (event.error === 'not-allowed') {
                     alert('Microphone access denied. Click the 🔒 lock icon in your browser address bar and allow microphone.');
                     stopMic();
@@ -101,13 +104,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert('No microphone found. Please check your system settings.');
                     stopMic();
                 }
-                // 'no-speech' / 'aborted' → onend will handle restart
+                // 'no-speech' / 'aborted' / 'network' → onend will handle restart
             };
 
             r.onend = () => {
                 if (micActive) {
-                    // auto-restart to keep listening continuously
-                    try { recognition.start(); } catch(e) { stopMic(); }
+                    // Browser killed continuous mode (e.g. long silence) — restart after short delay
+                    setTimeout(() => {
+                        if (micActive) {
+                            try {
+                                recognition = buildRecognition();
+                                recognition.start();
+                            } catch(e) { stopMic(); }
+                        }
+                    }, 200);
                 } else {
                     // properly stopped — clean up UI
                     micBtn.classList.remove('listening');
@@ -321,11 +331,12 @@ function handleIncomingMessage(data) {
     } else if (data.type === 'sources') {
         if (currentMessageDiv) {
             currentMessageDiv.dataset.sources = JSON.stringify(data.content);
+            // Store parsed sources for action bar rendering later
+            currentMessageDiv._pendingSources = data.content;
             if (currentContentDiv) {
                 renderContent(currentContentDiv, currentContentDiv.dataset.rawText);
             }
         }
-        appendSources(data.content);
         
     } else if (data.type === 'end') {
         isStreaming = false;
@@ -335,9 +346,9 @@ function handleIncomingMessage(data) {
             renderContent(currentContentDiv, currentContentDiv.dataset.rawText);
         }
         
-        // Add voice button to the completed message
+        // Add action bar (Listen + Source links) to the completed message
         if (currentMessageDiv && rawText) {
-            addVoiceButton(currentMessageDiv, rawText);
+            addActionBar(currentMessageDiv, rawText, currentMessageDiv._pendingSources || []);
             // Auto-speak if enabled
             if (ttsAutoSpeak) {
                 speakText(rawText);
@@ -400,34 +411,36 @@ function prepareAssistantMessage() {
     scrollToBottom();
 }
 
-function appendSources(sources) {
-    if (!sources || sources.length === 0 || !currentMessageDiv) return;
-    
-    const sourcesDiv = document.createElement('div');
-    sourcesDiv.className = 'sources-container';
-    
-    // Deduplicate sources by name
-    const uniqueSources = [...new Set(sources.map(s => s.source))];
-    
-    let html = '<span class="sources-label">📚 Grounded in:</span>';
-    uniqueSources.forEach((src, idx) => {
-        const allFromSource = sources.filter(s => s.source === src);
-        const cleanName = src.replace('.md', '').replace(/_/g, ' ');
-        const excerpts = allFromSource.map(s => s.text ? escapeHTML(s.text).substring(0, 200) + '...' : '').filter(Boolean).join('<hr style="border-color:rgba(255,255,255,0.15); margin:6px 0;">');
-        
-        html += `
-            <div class="source-tag" onclick="var panel = this.querySelector('.source-expand-panel'); if(panel) { panel.style.display = panel.style.display === 'block' ? 'none' : 'block'; }">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-                ${cleanName}
-                ${excerpts ? `<div class="source-expand-panel" style="display:none;">${excerpts}</div>` : ''}
-            </div>
-        `;
-    });
-    
-    sourcesDiv.innerHTML = html;
-    currentMessageDiv.appendChild(sourcesDiv);
-    scrollToBottom();
-}
+// Global source URL map
+const SOURCE_URL_MAP = {
+    'book_kerala_rare_28155.md': 'https://archive.org/details/pli.kerala.rare.28155',
+    'book_kerala_rare_37877.md': 'https://archive.org/details/pli.kerala.rare.37877',
+    'book_srinivasa_ramanujan_biography.md': 'https://archive.org/details/srinivasaramanuj0000unse',
+    'book_lost_notebook.md': 'https://archive.org/details/lost-notebook',
+    'paper_ramanujan_computing_technology.md': 'https://arxiv.org/abs/2103.09654',
+    'paper_lost_notebook_wiki.md': 'https://www.academia.edu/45639627/Srinivasa_Ramanujans_Lost_Notebooks',
+    'paper_ramanujan_sum_wiki.md': 'https://arxiv.org/pdf/0907.5232',
+    'web_wikipedia_ramanujan.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'web_ramanujan_explained.md': 'https://ramanujanexplained.org/',
+    'web_ramanujan_conjecture_wiki.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'lecture_youtube_NVVhGtFVpEU.md': 'https://www.youtube.com/watch?v=NVVhGtFVpEU',
+    'web_math4raghuram_videos.md': 'https://sites.google.com/site/math4raghuram/videos',
+    'doc_ramanujan_legacy_documentary.md': 'https://archive.org/details/SrinivasaRamanujan-TheMathematicianandHisLegacy-20170518webm',
+    'web_imsc_ramanujan.md': 'https://www.imsc.res.in/~rao/ramanujan/index.html',
+    'math_partition_function.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'math_taxicab_1729.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'math_mock_theta.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'math_continued_fractions.md': 'https://ramanujanexplained.org/',
+    'math_highly_composite.md': 'https://ramanujanexplained.org/',
+    'math_modular_forms.md': 'https://ramanujanexplained.org/',
+    'math_pi_series.md': 'https://ramanujanexplained.org/',
+    'math_rogers_ramanujan.md': 'https://ramanujanexplained.org/',
+    'biography_cambridge.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'biography_early_life.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'biography_illness_return.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'letter_to_hardy_1913.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+    'letter_final_mock_theta.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+};
 
 function scrollToBottom() {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -453,7 +466,7 @@ function parseBasicMarkdown(text) {
     
     // Inline citations [Source X]
     html = html.replace(/\[Source\s*(\d+)\]/gi, (match, num) => {
-        return `<span class="inline-citation" data-source-index="${num}" onclick="this.classList.toggle('show-tooltip')">[Source ${num}]<div class="source-tooltip inline-tooltip"></div></span>`;
+        return `<span class="inline-citation" data-source-index="${num}">[Source ${num}]<div class="source-tooltip inline-tooltip"></div></span>`;
     });
     
     return html;
@@ -486,9 +499,9 @@ function renderContent(element, rawText) {
     // Extract Handwriting blocks
     processedText = processedText.replace(/```handwriting\s*\n([\s\S]*?)```/gi, (match, contentStr) => {
         try {
-            const dataUrl = generateHandwritingImage(contentStr.trim());
             const id = imageTags.length;
-            imageTags.push(`<img src="${dataUrl}" class="handwriting-image" alt="Handwritten solution" style="max-width: 100%; border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); margin: 15px 0;">`);
+            const escapedText = escapeHTML(contentStr.trim());
+            imageTags.push(`<canvas id="hw_${uniqueId}_${id}" class="handwriting-canvas" data-text="${escapedText}" style="max-width: 100%; border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); margin: 15px 0; background: #eaf0ea;"></canvas>`);
             return `HANDWRITING_PLACEHOLDER_${id}`;
         } catch (e) {
             console.error("Handwriting error", e);
@@ -510,7 +523,27 @@ function renderContent(element, rawText) {
                 const idx = parseInt(citeSpan.dataset.sourceIndex) - 1;
                 if (sources[idx] && sources[idx].text) {
                     const tooltip = citeSpan.querySelector('.source-tooltip');
-                    if (tooltip) tooltip.innerHTML = escapeHTML(sources[idx].text);
+                    if (tooltip) {
+                        const srcName = sources[idx].source;
+                        
+                        const SOURCE_URL_MAP = {
+                            'book_kerala_rare_28155.md': 'https://archive.org/details/pli.kerala.rare.28155',
+                            'book_kerala_rare_37877.md': 'https://archive.org/details/pli.kerala.rare.37877',
+                            'book_srinivasa_ramanujan_biography.md': 'https://archive.org/details/srinivasaramanuj0000unse',
+                            'book_lost_notebook.md': 'https://archive.org/details/lost-notebook',
+                            'paper_ramanujan_computing_technology.md': 'https://arxiv.org/abs/2103.09654',
+                            'web_wikipedia_ramanujan.md': 'https://en.wikipedia.org/wiki/Srinivasa_Ramanujan',
+                            'web_ramanujan_explained.md': 'https://ramanujanexplained.org/',
+                            'lecture_youtube_NVVhGtFVpEU.md': 'https://www.youtube.com/watch?v=NVVhGtFVpEU',
+                            'web_math4raghuram_videos.md': 'https://sites.google.com/site/math4raghuram/videos',
+                            'doc_ramanujan_legacy_documentary.md': 'https://archive.org/details/SrinivasaRamanujan-TheMathematicianandHisLegacy-20170518webm',
+                            'web_imsc_ramanujan.md': 'https://www.imsc.res.in/~rao/ramanujan/index.html'
+                        };
+                        
+                        const realUrl = SOURCE_URL_MAP[srcName] || `/api/corpus/${srcName}`;
+                        const readMoreLink = `<div style="margin-top: 10px; text-align: right; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px; pointer-events: auto;"><a href="${realUrl}" target="_blank" style="color: #ffcc00; text-decoration: underline; font-weight: bold; font-size: 0.9rem; cursor: pointer; display: inline-block;">View Original Source ↗</a></div>`;
+                        tooltip.innerHTML = escapeHTML(sources[idx].text) + readMoreLink;
+                    }
                 }
             });
             finalHtml = tempDiv.innerHTML;
@@ -608,6 +641,43 @@ function renderContent(element, rawText) {
             if(container) container.innerHTML = `<div style="color:red; padding: 10px;">Failed to render plot.</div>`;
         }
     });
+
+    // Initialize handwriting canvases
+    element.querySelectorAll('canvas.handwriting-canvas').forEach(canvas => {
+        if (!canvas.dataset.rendered) {
+            const text = canvas.dataset.text;
+            // Unescape text (basic unescape)
+            const unescapedText = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
+            
+            // If streaming, just draw static immediately. Otherwise animate.
+            animateHandwritingCanvas(canvas, unescapedText, !isStreaming);
+            canvas.dataset.rendered = "true";
+        }
+    });
+
+    // Add event delegation for inline citations so tooltips work reliably
+    // We attach it to the parent element so it survives re-renders
+    if (!element.dataset.citationListenerAttached) {
+        element.addEventListener('click', (e) => {
+            // If they clicked the Read Full Source link, let it open normally
+            if (e.target.closest('a')) return;
+            
+            // If they clicked the citation span itself, toggle it
+            const citeSpan = e.target.closest('.inline-citation');
+            if (citeSpan) {
+                // Close others first
+                element.querySelectorAll('.inline-citation.show-tooltip').forEach(el => {
+                    if (el !== citeSpan) el.classList.remove('show-tooltip');
+                });
+                citeSpan.classList.toggle('show-tooltip');
+                e.preventDefault();
+            } else {
+                // Clicking anywhere else closes all tooltips
+                element.querySelectorAll('.inline-citation.show-tooltip').forEach(el => el.classList.remove('show-tooltip'));
+            }
+        });
+        element.dataset.citationListenerAttached = 'true';
+    }
 }
 
 function escapeHTML(str) {
@@ -619,17 +689,16 @@ function escapeHTML(str) {
         .replace(/'/g, '&#039;');
 }
 
-function generateHandwritingImage(text) {
-    const canvas = document.createElement('canvas');
+function animateHandwritingCanvas(canvas, text, animate = true) {
     const ctx = canvas.getContext('2d');
     
     // Set fixed width, calculate dynamic height based on text lines
     const width = 600;
     const padding = 40;
-    const lineHeight = 35;
+    const lineHeight = 38;
     
     // We must set the font first to measure text
-    ctx.font = '28px "Allura", cursive, sans-serif';
+    ctx.font = '28px "Caveat", cursive, sans-serif';
     
     // Handle manual newlines and word wrapping
     const rawLines = text.split('\n');
@@ -677,22 +746,90 @@ function generateHandwritingImage(text) {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
     }
     
-    // Draw text in dark slate ink
-    ctx.font = '28px "Allura", cursive, sans-serif'; // set again after resize
+    // Prepare character drawing data
+    const charsToDraw = [];
+    ctx.font = '28px "Caveat", cursive, sans-serif'; 
     ctx.fillStyle = '#2c3539';
     ctx.textBaseline = 'bottom';
     
-    lines.forEach((line, index) => {
-        // Slight varying rotation per line for authentic handwriting feel
-        ctx.save();
-        const angle = (Math.random() - 0.5) * 0.01;
-        ctx.translate(padding, padding + (index * lineHeight));
-        ctx.rotate(angle);
-        ctx.fillText(line, 0, 0);
-        ctx.restore();
+    lines.forEach((line, lineIndex) => {
+        let currentX = 0;
+        const lineAngle = (Math.random() - 0.5) * 0.02; // very slight line slant
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const metrics = ctx.measureText(char);
+            
+            // Random jitters for realistic human feel
+            const yJitter = (Math.random() - 0.5) * 4;
+            const xJitter = (Math.random() - 0.5) * 1.5;
+            const rotation = (Math.random() - 0.5) * 0.05 + lineAngle;
+            const scale = 0.95 + (Math.random() * 0.1);
+            
+            charsToDraw.push({
+                char: char,
+                x: currentX + xJitter,
+                y: lineIndex * lineHeight + yJitter,
+                rotation: rotation,
+                scale: scale,
+                lineIndex: lineIndex
+            });
+            
+            currentX += metrics.width;
+            
+            // Add a little extra random space between words
+            if (char === ' ') {
+                currentX += Math.random() * 4;
+            }
+        }
     });
+
+    let drawIndex = 0;
     
-    return canvas.toDataURL('image/png');
+    function drawNextChars() {
+        if (drawIndex >= charsToDraw.length) return;
+        
+        // Draw 1-3 characters per frame to simulate varying writing speed
+        const charsThisFrame = Math.floor(Math.random() * 3) + 1;
+        
+        ctx.font = '28px "Caveat", cursive, sans-serif'; 
+        ctx.fillStyle = '#2c3539';
+        ctx.textBaseline = 'bottom';
+        
+        for (let i = 0; i < charsThisFrame && drawIndex < charsToDraw.length; i++) {
+            const c = charsToDraw[drawIndex++];
+            if (c.char.trim() === '') continue; // Skip spaces visually
+            
+            ctx.save();
+            ctx.translate(padding + c.x, padding + c.y);
+            ctx.rotate(c.rotation);
+            ctx.scale(c.scale, c.scale);
+            ctx.fillText(c.char, 0, 0);
+            ctx.restore();
+        }
+        
+        if (drawIndex < charsToDraw.length) {
+            requestAnimationFrame(drawNextChars);
+        }
+    }
+
+    if (animate) {
+        drawNextChars();
+    } else {
+        // Draw everything instantly
+        charsThisFrame = charsToDraw.length; // Max
+        while(drawIndex < charsToDraw.length) {
+            const c = charsToDraw[drawIndex++];
+            if (c.char.trim() === '') continue;
+            
+            ctx.save();
+            ctx.translate(padding + c.x, padding + c.y);
+            ctx.rotate(c.rotation);
+            ctx.scale(c.scale, c.scale);
+            ctx.fillText(c.char, 0, 0);
+            ctx.restore();
+        }
+    }
 }
 
 // Fetch history
@@ -789,16 +926,28 @@ function initTTS() {
         const voices = speechSynthesis.getVoices();
         if (!voices.length) return;
         
-        // Priority: Indian English > British English > any English
-        // Also match common Windows/Google voice names
+        // Log all voices for debugging
+        console.log('Available TTS voices:', voices.map(v => `${v.name} (${v.lang}) ${v.localService ? '[local]' : '[remote]'}`));
+        
+        // Simplified voice selection — reliability over preference, but strictly prefer MALE
+        // Windows default voices are the most reliable for TTS
         const priorities = [
-            v => v.lang === 'en-IN',
-            v => v.lang.startsWith('en-IN'),
-            v => /ravi|neerja|india/i.test(v.name) && v.lang.startsWith('en'),
-            v => v.lang === 'en-GB' && /male|daniel|george|ryan/i.test(v.name),
-            v => v.lang === 'en-GB',
-            v => v.lang.startsWith('en') && /male|david|mark|james/i.test(v.name) && !/female|zira|eva/i.test(v.name),
-            v => v.lang.startsWith('en'),
+            // Microsoft David (en-US, male) — most reliable on Windows
+            v => /david/i.test(v.name) && v.lang.startsWith('en'),
+            // Microsoft Mark (en-US, male)
+            v => /mark/i.test(v.name) && v.lang.startsWith('en'),
+            // Microsoft Ravi (en-IN, male)
+            v => /ravi/i.test(v.name) && v.lang.startsWith('en'),
+            // Google UK English Male (Chrome)
+            v => /Google UK English Male/i.test(v.name),
+            // Any en-US male
+            v => v.lang === 'en-US' && /male/i.test(v.name) && !/female/i.test(v.name),
+            // Any male voice
+            v => /male/i.test(v.name) && !/female/i.test(v.name),
+            // Any English voice that is explicitly NOT female
+            v => v.lang.startsWith('en') && !/female|woman|zira|eva|neerja|susan|hazel/i.test(v.name),
+            // Absolute fallback: any English voice
+            v => v.lang.startsWith('en')
         ];
         
         for (const test of priorities) {
@@ -806,8 +955,12 @@ function initTTS() {
             if (match) { ttsVoice = match; break; }
         }
         
-        if (!ttsVoice) ttsVoice = voices[0];
-        console.log('TTS voice selected:', ttsVoice.name, '(' + ttsVoice.lang + ')');
+        if (!ttsVoice && voices.length > 0) ttsVoice = voices[0];
+        if (ttsVoice) {
+            console.log('✅ TTS voice selected:', ttsVoice.name, '(' + ttsVoice.lang + ')');
+        } else {
+            console.warn('⚠️ No TTS voices available');
+        }
     }
     
     pickVoice();
@@ -919,12 +1072,15 @@ function speakText(rawText, button = null) {
     if (!('speechSynthesis' in window)) return;
     
     // Stop any current speech first
-    stopSpeaking();
+    ttsQueue = [];
+    speechSynthesis.cancel();
     
     const clean = stripForSpeech(rawText);
+    console.log('TTS clean text length:', clean.length, 'preview:', clean.substring(0, 100));
     if (!clean) return;
     
     ttsQueue = splitIntoChunks(clean);
+    console.log('TTS chunks:', ttsQueue.length);
     ttsCurrentBtn = button;
     
     if (button) {
@@ -938,7 +1094,11 @@ function speakText(rawText, button = null) {
         `;
     }
     
-    speakNextChunk();
+    // CRITICAL: Chromium's cancel() is async. We MUST wait before calling speak()
+    // otherwise the new utterance gets silently swallowed.
+    setTimeout(() => {
+        speakNextChunk();
+    }, 120);
 }
 
 /**
@@ -963,8 +1123,9 @@ function speakNextChunk() {
     window.currentUtterance = utterance;
     
     if (ttsVoice) utterance.voice = ttsVoice;
-    utterance.rate = 0.92;    // Clear, unhurried pace
-    utterance.pitch = 0.95;   // Slightly deeper tone
+    utterance.lang = ttsVoice ? ttsVoice.lang : 'en-IN';  // Ensure Indian English pronunciation
+    utterance.rate = 0.88;    // Slightly slower for clear, measured delivery
+    utterance.pitch = 0.9;    // Slightly deeper, warm male tone
     utterance.volume = 1.0;
     
     utterance.onend = () => {
@@ -986,7 +1147,13 @@ function speakNextChunk() {
  */
 function stopSpeaking() {
     ttsQueue = [];
-    speechSynthesis.cancel();
+    if ('speechSynthesis' in window) {
+        if (speechSynthesis.speaking || speechSynthesis.pending) {
+            speechSynthesis.cancel();
+        }
+        // Sometimes the engine gets stuck in 'paused' state, resume clears it
+        if (speechSynthesis.paused) speechSynthesis.resume();
+    }
     
     if (ttsCurrentBtn) {
         ttsCurrentBtn.classList.remove('speaking');
@@ -1019,23 +1186,67 @@ function resetVoiceBtnLabel(btn) {
 }
 
 /**
- * Add a speak/stop button to an assistant message div.
+ * Add an action bar with Listen button + Source link pills to an assistant message.
  */
+function addActionBar(messageDiv, rawText, sources) {
+    const bar = document.createElement('div');
+    bar.className = 'message-action-bar';
+    bar.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);';
+    
+    // Listen button
+    if ('speechSynthesis' in window) {
+        const btn = document.createElement('button');
+        btn.className = 'voice-btn';
+        btn.title = 'Read aloud';
+        resetVoiceBtnLabel(btn);
+        
+        btn.addEventListener('click', () => {
+            if (btn.classList.contains('speaking')) {
+                stopSpeaking();
+                return;
+            }
+            speakText(rawText, btn);
+        });
+        
+        bar.appendChild(btn);
+    }
+    
+    // Source link pills (right beside Listen)
+    if (sources && sources.length > 0) {
+        const uniqueSources = [...new Set(sources.map(s => s.source))];
+        // Deduplicate by URL too
+        const seenUrls = new Set();
+        
+        uniqueSources.forEach(src => {
+            const realUrl = SOURCE_URL_MAP[src] || `/api/corpus/${src}`;
+            if (seenUrls.has(realUrl)) return;
+            seenUrls.add(realUrl);
+            
+            const cleanName = (src || "Unknown").replace('.md', '').replace(/_/g, ' ');
+            
+            const link = document.createElement('a');
+            link.href = realUrl;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'source-link-pill';
+            link.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> ${cleanName}`;
+            
+            bar.appendChild(link);
+        });
+    } else {
+        // Debug fallback to prove rendering works even if sources is empty
+        const link = document.createElement('a');
+        link.className = 'source-link-pill';
+        link.style.opacity = '0.5';
+        link.title = 'No sources were retrieved for this response';
+        link.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> No Sources`;
+        bar.appendChild(link);
+    }
+    
+    messageDiv.appendChild(bar);
+}
+
+// Keep backward compat for history loading
 function addVoiceButton(messageDiv, rawText) {
-    if (!('speechSynthesis' in window)) return;
-    
-    const btn = document.createElement('button');
-    btn.className = 'voice-btn';
-    btn.title = 'Read aloud';
-    resetVoiceBtnLabel(btn);
-    
-    btn.addEventListener('click', () => {
-        if (btn.classList.contains('speaking')) {
-            stopSpeaking();
-            return;
-        }
-        speakText(rawText, btn);
-    });
-    
-    messageDiv.appendChild(btn);
+    addActionBar(messageDiv, rawText, []);
 }

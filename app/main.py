@@ -107,6 +107,26 @@ async def get_timeline():
     return {"timeline": timeline}
 
 
+@app.get("/api/corpus/{filename}")
+async def get_corpus_file(filename: str):
+    """Serve the original markdown corpus file content."""
+    # Ensure it's just a filename without paths to prevent directory traversal
+    safe_filename = Path(filename).name
+    corpus_dir = Path(config.CORPUS_DIR)
+    file_path = corpus_dir / safe_filename
+    
+    if file_path.exists() and file_path.is_file():
+        # Read as plain text so browsers display it instead of downloading it
+        from fastapi.responses import PlainTextResponse
+        content = file_path.read_text(encoding="utf-8")
+        return PlainTextResponse(content)
+    
+    return JSONResponse(
+        {"error": "Corpus file not found."},
+        status_code=404,
+    )
+
+
 # --- WebSocket Chat ---
 
 @app.websocket("/ws/chat/{session_id}")

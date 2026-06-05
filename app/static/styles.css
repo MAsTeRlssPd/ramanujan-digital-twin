@@ -768,6 +768,37 @@ body {
     50% { box-shadow: 0 0 0 6px rgba(201, 169, 78, 0); }
 }
 
+/* Source link pills (beside Listen button) */
+.source-link-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.3rem 0.65rem;
+    background: rgba(201, 169, 78, 0.08);
+    border: 1px solid rgba(201, 169, 78, 0.25);
+    border-radius: 6px;
+    color: var(--accent-gold);
+    font-size: 0.72rem;
+    font-family: var(--font-ui);
+    text-decoration: none;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    white-space: nowrap;
+}
+
+.source-link-pill:hover {
+    background: rgba(201, 169, 78, 0.2);
+    border-color: var(--accent-gold);
+    color: #f0d060;
+    transform: translateY(-1px);
+}
+
+.source-link-pill svg {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+}
+
 /* Global voice toggle in header */
 .voice-toggle {
     background: none;
