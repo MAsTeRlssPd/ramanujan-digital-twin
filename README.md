@@ -1,6 +1,6 @@
 # Ramanujan Digital Twin
 
-> *"An equation has no meaning to me unless it expresses a thought of God."* — Srinivasa Ramanujan
+> *"An equation has no meaning to me unless it expresses a thought of God."* ~ Srinivasa Ramanujan
 
 A Digital Twin of **Srinivasa Ramanujan (1887–1920)**, the self-taught mathematical genius from Tamil Nadu. This AI agent faithfully emulates Ramanujan's voice, mathematical knowledge, and reasoning style, grounded in his actual notebooks, papers, and letters via a RAG pipeline, with persistent memory across sessions.
 
