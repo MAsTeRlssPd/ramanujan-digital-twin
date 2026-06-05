@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     initTTS();
     
-    // Auto-resize textarea
+    // Auto-resize input
     messageInput.addEventListener('input', function() {
         this.style.height = 'auto';
         this.style.height = (this.scrollHeight) + 'px';
@@ -54,6 +54,92 @@ document.addEventListener('DOMContentLoaded', () => {
             this.style.height = 'auto';
         }
     });
+    
+    // ── Voice Input ──────────────────────────────────────────────────────────
+    const micBtn = document.getElementById('mic-btn');
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const ORIGINAL_PLACEHOLDER = 'Ask Ramanujan a mathematical question...';
+    const LISTENING_PLACEHOLDER = '🎤 Listening… speak now';
+
+    if (!SpeechRecognition) {
+        if (micBtn) micBtn.style.display = 'none';
+    } else {
+        let recognition = null;
+        let micActive = false;   // our single source of truth
+        let accumulated = '';   // confirmed words so far
+
+        function buildRecognition() {
+            const r = new SpeechRecognition();
+            r.continuous = false;
+            r.interimResults = true;
+            r.lang = 'en-IN';
+
+            r.onstart = () => {
+                micBtn.classList.add('listening');
+                messageInput.placeholder = LISTENING_PLACEHOLDER;
+            };
+
+            r.onresult = (event) => {
+                let interim = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const t = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        accumulated += (accumulated && !accumulated.endsWith(' ') ? ' ' : '') + t;
+                    } else {
+                        interim += t;
+                    }
+                }
+                messageInput.value = accumulated + (interim ? (accumulated ? ' ' : '') + interim : '');
+                messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+            };
+
+            r.onerror = (event) => {
+                if (event.error === 'not-allowed') {
+                    alert('Microphone access denied. Click the 🔒 lock icon in your browser address bar and allow microphone.');
+                    stopMic();
+                } else if (event.error === 'audio-capture') {
+                    alert('No microphone found. Please check your system settings.');
+                    stopMic();
+                }
+                // 'no-speech' / 'aborted' → onend will handle restart
+            };
+
+            r.onend = () => {
+                if (micActive) {
+                    // auto-restart to keep listening continuously
+                    try { recognition.start(); } catch(e) { stopMic(); }
+                } else {
+                    // properly stopped — clean up UI
+                    micBtn.classList.remove('listening');
+                    messageInput.placeholder = ORIGINAL_PLACEHOLDER;
+                }
+            };
+
+            return r;
+        }
+
+        function startMic() {
+            micActive = true;
+            accumulated = messageInput.value;
+            recognition = buildRecognition();
+            try { recognition.start(); } catch(e) { console.error(e); micActive = false; }
+        }
+
+        function stopMic() {
+            micActive = false;  // must be set BEFORE calling stop() so onend sees it
+            micBtn.classList.remove('listening');
+            messageInput.placeholder = ORIGINAL_PLACEHOLDER;
+            try { if (recognition) recognition.stop(); } catch(e) {}
+            recognition = null;
+        }
+
+        window.stopVoiceRecording = stopMic;
+
+        micBtn.addEventListener('click', () => {
+            if (micActive) { stopMic(); } else { startMic(); }
+        });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 });
 
 function setupEventListeners() {
@@ -147,6 +233,8 @@ function setupEventListeners() {
             initWebSocket();
             if (window.fetchMemories) window.fetchMemories();
             loadSessions();
+            const sugg = document.getElementById('suggestions-container');
+            if (sugg) sugg.style.display = 'flex';
         });
     }
 }
@@ -182,8 +270,16 @@ function handleSend() {
     const text = messageInput.value.trim();
     if ((!text && !currentImageData) || isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
 
+    // Stop voice recording if active
+    if (window.stopVoiceRecording) {
+        window.stopVoiceRecording();
+    }
+
     // Add user message to UI
     appendUserMessage(text, currentImageData);
+    
+    const sugg = document.getElementById('suggestions-container');
+    if (sugg) sugg.style.display = 'none';
     
     // Send via WebSocket
     ws.send(JSON.stringify({ 
@@ -223,6 +319,12 @@ function handleIncomingMessage(data) {
         scrollToBottom();
         
     } else if (data.type === 'sources') {
+        if (currentMessageDiv) {
+            currentMessageDiv.dataset.sources = JSON.stringify(data.content);
+            if (currentContentDiv) {
+                renderContent(currentContentDiv, currentContentDiv.dataset.rawText);
+            }
+        }
         appendSources(data.content);
         
     } else if (data.type === 'end') {
@@ -307,13 +409,17 @@ function appendSources(sources) {
     // Deduplicate sources by name
     const uniqueSources = [...new Set(sources.map(s => s.source))];
     
-    let html = '<span>Grounded in:</span>';
-    uniqueSources.forEach(src => {
+    let html = '<span class="sources-label">📚 Grounded in:</span>';
+    uniqueSources.forEach((src, idx) => {
+        const allFromSource = sources.filter(s => s.source === src);
         const cleanName = src.replace('.md', '').replace(/_/g, ' ');
+        const excerpts = allFromSource.map(s => s.text ? escapeHTML(s.text).substring(0, 200) + '...' : '').filter(Boolean).join('<hr style="border-color:rgba(255,255,255,0.15); margin:6px 0;">');
+        
         html += `
-            <div class="source-tag" title="Relevance score: ${(sources.find(s=>s.source===src).relevance * 100).toFixed(0)}%">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+            <div class="source-tag" onclick="var panel = this.querySelector('.source-expand-panel'); if(panel) { panel.style.display = panel.style.display === 'block' ? 'none' : 'block'; }">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
                 ${cleanName}
+                ${excerpts ? `<div class="source-expand-panel" style="display:none;">${excerpts}</div>` : ''}
             </div>
         `;
     });
@@ -345,6 +451,11 @@ function parseBasicMarkdown(text) {
         return `<p>${p.replace(/\n/g, '<br>')}</p>`;
     }).join('');
     
+    // Inline citations [Source X]
+    html = html.replace(/\[Source\s*(\d+)\]/gi, (match, num) => {
+        return `<span class="inline-citation" data-source-index="${num}" onclick="this.classList.toggle('show-tooltip')">[Source ${num}]<div class="source-tooltip inline-tooltip"></div></span>`;
+    });
+    
     return html;
 }
 
@@ -355,6 +466,7 @@ function formatTextBasic(text) {
 // Unified rendering for Markdown, Math (KaTeX), and Plots (function-plot, Plotly)
 function renderContent(element, rawText) {
     let plotConfigs = [];
+    let imageTags = [];
     let uniqueId = Math.random().toString(36).substr(2, 9);
     
     // Extract 2D plot blocks before escaping HTML
@@ -371,11 +483,48 @@ function renderContent(element, rawText) {
         return `PLOT_PLACEHOLDER_${id}`;
     });
 
+    // Extract Handwriting blocks
+    processedText = processedText.replace(/```handwriting\s*\n([\s\S]*?)```/gi, (match, contentStr) => {
+        try {
+            const dataUrl = generateHandwritingImage(contentStr.trim());
+            const id = imageTags.length;
+            imageTags.push(`<img src="${dataUrl}" class="handwriting-image" alt="Handwritten solution" style="max-width: 100%; border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.15); margin: 15px 0;">`);
+            return `HANDWRITING_PLACEHOLDER_${id}`;
+        } catch (e) {
+            console.error("Handwriting error", e);
+            return `\`\`\`\n${contentStr}\n\`\`\``;
+        }
+    });
+
     let finalHtml = parseBasicMarkdown(processedText);
+    
+    // Inject tooltip data into inline citations
+    try {
+        const msgDiv = element.closest('.message');
+        if (msgDiv && msgDiv.dataset.sources) {
+            const sources = JSON.parse(msgDiv.dataset.sources);
+            // We need to inject the tooltip text into the empty .source-tooltip divs we created above
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = finalHtml;
+            tempDiv.querySelectorAll('.inline-citation').forEach(citeSpan => {
+                const idx = parseInt(citeSpan.dataset.sourceIndex) - 1;
+                if (sources[idx] && sources[idx].text) {
+                    const tooltip = citeSpan.querySelector('.source-tooltip');
+                    if (tooltip) tooltip.innerHTML = escapeHTML(sources[idx].text);
+                }
+            });
+            finalHtml = tempDiv.innerHTML;
+        }
+    } catch(e) { console.error('Citation parse error', e); }
     
     // Inject placeholder divs for plots
     plotConfigs.forEach((_, index) => {
         finalHtml = finalHtml.replace(`PLOT_PLACEHOLDER_${index}`, `<div class="plot-container" id="plot-${uniqueId}-${index}" style="margin: 15px 0; background: white; border-radius: 8px; padding: 10px; overflow: hidden; display: flex; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>`);
+    });
+    
+    // Inject handwriting image tags
+    imageTags.forEach((imgTag, index) => {
+        finalHtml = finalHtml.replace(`HANDWRITING_PLACEHOLDER_${index}`, imgTag);
     });
     
     element.innerHTML = finalHtml;
@@ -470,6 +619,82 @@ function escapeHTML(str) {
         .replace(/'/g, '&#039;');
 }
 
+function generateHandwritingImage(text) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Set fixed width, calculate dynamic height based on text lines
+    const width = 600;
+    const padding = 40;
+    const lineHeight = 35;
+    
+    // We must set the font first to measure text
+    ctx.font = '28px "Allura", cursive, sans-serif';
+    
+    // Handle manual newlines and word wrapping
+    const rawLines = text.split('\n');
+    const lines = [];
+    
+    for (const rawLine of rawLines) {
+        const words = rawLine.split(' ');
+        let currentLine = '';
+        
+        for (let i = 0; i < words.length; i++) {
+            let testLine = currentLine + words[i] + ' ';
+            let metrics = ctx.measureText(testLine);
+            if (metrics.width > width - (padding * 2) && i > 0) {
+                lines.push(currentLine.trim());
+                currentLine = words[i] + ' ';
+            } else {
+                currentLine = testLine;
+            }
+        }
+        lines.push(currentLine.trim());
+    }
+    
+    const height = Math.max((lines.length * lineHeight) + (padding * 2), 200);
+    canvas.width = width;
+    canvas.height = height;
+    
+    // Draw paper background (Pale greenish/grayish like Image 1)
+    ctx.fillStyle = '#eaf0ea'; 
+    ctx.fillRect(0, 0, width, height);
+    
+    // Add some noise/texture to paper
+    for (let i = 0; i < 800; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)';
+        ctx.fillRect(Math.random() * width, Math.random() * height, 2, 2);
+    }
+    
+    // Draw grid (square graph paper style)
+    ctx.strokeStyle = 'rgba(120, 150, 140, 0.25)';
+    ctx.lineWidth = 1;
+    const gridSize = 20;
+    for (let x = 0; x < width; x += gridSize) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+    }
+    for (let y = 0; y < height; y += gridSize) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+    }
+    
+    // Draw text in dark slate ink
+    ctx.font = '28px "Allura", cursive, sans-serif'; // set again after resize
+    ctx.fillStyle = '#2c3539';
+    ctx.textBaseline = 'bottom';
+    
+    lines.forEach((line, index) => {
+        // Slight varying rotation per line for authentic handwriting feel
+        ctx.save();
+        const angle = (Math.random() - 0.5) * 0.01;
+        ctx.translate(padding, padding + (index * lineHeight));
+        ctx.rotate(angle);
+        ctx.fillText(line, 0, 0);
+        ctx.restore();
+    });
+    
+    return canvas.toDataURL('image/png');
+}
+
 // Fetch history
 async function loadHistory() {
     try {
@@ -479,6 +704,8 @@ async function loadHistory() {
             if (data.history && data.history.length > 0) {
                 // Clear existing default message
                 messagesContainer.innerHTML = '';
+                const sugg = document.getElementById('suggestions-container');
+                if (sugg) sugg.style.display = 'none';
                 
                 data.history.forEach(msg => {
                     const div = document.createElement('div');

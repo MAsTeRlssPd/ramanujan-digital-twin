@@ -94,7 +94,7 @@ class Retriever:
         )
 
         sources = [
-            {"source": r["source"], "topic": r["topic"], "relevance": 1 - r["distance"]}
+            {"source": r["source"], "topic": r["topic"], "relevance": 1 - r["distance"], "text": r["text"]}
             for r in results
         ]
 

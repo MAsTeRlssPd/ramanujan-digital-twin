@@ -93,6 +93,18 @@ body {
     color: var(--accent-dark);
 }
 
+/* Voice Input Animation */
+@keyframes pulse-red {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+    70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+}
+
+.icon-btn.listening {
+    color: #dc3545;
+    animation: pulse-red 1.5s infinite;
+}
+
 .icon-btn.small {
     padding: 0.25rem;
 }
@@ -266,19 +278,152 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
+    cursor: pointer;
+    position: relative;
 }
 
 .source-tag svg {
     width: 12px;
     height: 12px;
     color: var(--accent-gold);
+    flex-shrink: 0;
+}
+
+.inline-citation {
+    color: var(--accent-dark);
+    font-size: 0.8em;
+    vertical-align: super;
+    cursor: pointer;
+    position: relative;
+    font-family: var(--font-ui);
+    margin: 0 2px;
+    background: var(--accent-light);
+    padding: 1px 4px;
+    border-radius: 3px;
+    transition: var(--transition-fast);
+}
+
+.inline-citation:hover, .source-tag:hover {
+    text-decoration: underline;
+    background: var(--accent-gold);
+    color: white;
+}
+
+/* Source expand panel (shown below the tag on click) */
+.source-expand-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 300px;
+    max-width: 400px;
+    background: #2c2c2c;
+    color: #e0e0e0;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-family: var(--font-ui);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    z-index: 100;
+    text-align: left;
+    white-space: normal;
+    line-height: 1.5;
+    cursor: default;
+}
+
+.source-expand-panel::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 16px;
+    border-width: 6px;
+    border-style: solid;
+    border-color: transparent transparent #2c2c2c transparent;
+}
+
+/* Inline citation tooltip (uses same expand panel approach) */
+.source-tooltip {
+    display: none;
+    position: absolute;
+    bottom: 120%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 300px;
+    background: #2c2c2c;
+    color: #e0e0e0;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-family: var(--font-ui);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    z-index: 100;
+    text-align: left;
+    white-space: normal;
+    line-height: 1.4;
+}
+
+.inline-tooltip {
+    width: 250px;
+    bottom: 150%;
+}
+
+.source-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #2c2c2c transparent transparent transparent;
+}
+
+.show-tooltip .source-tooltip {
+    display: block;
+}
+
+.source-tooltip:empty {
+    display: none !important;
 }
 
 /* Input Area */
 .input-area {
-    padding: 1.5rem 2rem;
     background: var(--bg-color);
     border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+}
+
+.suggestions-container {
+    padding: 1rem 2rem 0;
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    scrollbar-width: none; /* Firefox */
+}
+
+.suggestions-container::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
+.suggestion-btn {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.suggestion-btn:hover {
+    background: var(--accent-light);
+    border-color: var(--accent-gold);
+}
+
+.input-area-inner {
+    padding: 1rem 2rem 1.5rem;
     display: flex;
     gap: 1rem;
     align-items: flex-end;

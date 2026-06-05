@@ -73,6 +73,21 @@ class ChatHandler:
             rag_context=rag_context,
             memory_context=memory_context,
         )
+        
+        # 5.5 Math Counter Logic (Per-Prompt)
+        math_keywords = ['solve', 'equation', 'theorem', 'proof', 'formula', 'calculate', 'integrate', 'differentiate', 'series', 'function', 'integral', 'derivative', 'geometry', 'algebra', 'calculus', '+', '=', 'sin', 'cos', 'tan', 'math']
+        lower_msg = user_message.lower()
+        has_math_context = any(kw in lower_msg for kw in math_keywords)
+        
+        q_count = user_message.count('?')
+        q_count += lower_msg.count('solve')
+        q_count += lower_msg.count('calculate')
+        q_count += lower_msg.count('find')
+        q_count += lower_msg.count('evaluate')
+            
+        # Only trigger if it has math context AND >= 3 questions, OR if explicitly requested
+        if (has_math_context and q_count >= 3) or ('image' in lower_msg and 'handwriting' in lower_msg):
+            system_prompt += "\n\nCRITICAL INSTRUCTION: The user has asked 3 or more mathematical questions in this single prompt! You MUST provide your ENTIRE mathematical solution inside a ```handwriting\n...\n``` markdown block. DO NOT use normal text for the math solution, and absolutely DO NOT output any ```plot``` or ```plot3d``` blocks. Use the handwriting block exclusively so it can be rendered as an image of your actual handwriting. CRITICAL: Inside the handwriting block, you MUST NOT use LaTeX formatting (like \\frac, \\int, \\pi, or $$). Write all math using plain readable text (like x^2, a/b, pi, integral) because the handwriting canvas does not support LaTeX."
 
         # 6. Build conversation history for Gemini
         history = await self.memory.get_conversation_history(session_id)
