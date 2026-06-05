@@ -8,9 +8,12 @@ A Digital Twin of **Srinivasa Ramanujan (1887–1920)**, the self-taught mathema
 
 - **Authentic Persona**: Speaks as Ramanujan in first person, humble, spiritual, mathematically profound
 - **RAG Pipeline**: Grounded in ~19 curated documents from Ramanujan's actual work (notebooks, papers, letters, biographical sources)
+- **Interactive Source Citations**: Answers are grounded in local documents, with expandable panels that reveal the exact source text directly in the chat UI
 - **Dual Memory System**: Short-term conversation history + long-term persistent memory across sessions
 - **Streaming Chat**: Real-time WebSocket streaming for natural conversation flow
 - **Math Rendering**: LaTeX formulas rendered beautifully via KaTeX
+- **Handwriting Generation**: For complex mathematical queries, Ramanujan dynamically generates and renders his answers as vintage handwritten notes
+- **Voice Capabilities**: Talk to Ramanujan using live Indian-English speech recognition, and hear him reply via Text-to-Speech
 - **Interactive Graphing**: 2D and 3D visualizations of mathematical functions using function-plot and Plotly.js
 - **Memory Dashboard**: Visual display of what Ramanujan "remembers" about you
 - **Life Timeline**: Interactive timeline of Ramanujan's life (1887–1920)
