@@ -243,11 +243,35 @@ function setupEventListeners() {
         }
     });
 
+    // --- Mobile sidebar helpers ---
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+    function closeMobileSidebars() {
+        if (leftSidebarPanel) leftSidebarPanel.classList.remove('mobile-open');
+        if (memoryPanel) memoryPanel.classList.remove('mobile-open');
+        if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+    }
+
+    function openMobileSidebar(panel) {
+        closeMobileSidebars(); // close any other open sidebar first
+        panel.classList.add('mobile-open');
+        if (sidebarOverlay) sidebarOverlay.classList.add('active');
+    }
+
+    // Tap overlay → close all sidebars
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', closeMobileSidebars);
+    }
+
     // Toggle sidebars
     if(toggleSidebarBtn) {
         toggleSidebarBtn.addEventListener('click', () => {
             if (window.innerWidth <= 768) {
-                leftSidebarPanel.classList.toggle('mobile-open');
+                if (leftSidebarPanel.classList.contains('mobile-open')) {
+                    closeMobileSidebars();
+                } else {
+                    openMobileSidebar(leftSidebarPanel);
+                }
             } else {
                 leftSidebarPanel.classList.toggle('collapsed');
             }
@@ -257,7 +281,11 @@ function setupEventListeners() {
     if(toggleMemoryBtn) {
         toggleMemoryBtn.addEventListener('click', () => {
             if (window.innerWidth <= 768) {
-                memoryPanel.classList.toggle('mobile-open');
+                if (memoryPanel.classList.contains('mobile-open')) {
+                    closeMobileSidebars();
+                } else {
+                    openMobileSidebar(memoryPanel);
+                }
             } else {
                 memoryPanel.classList.toggle('collapsed');
             }
