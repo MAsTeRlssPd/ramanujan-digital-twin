@@ -9,9 +9,9 @@ echo "=============================================="
 echo "  Ramanujan Digital Twin — Starting Up"
 echo "=============================================="
 
-# Check if ChromaDB has already been built on the persistent disk.
+# Check if ChromaDB has already been built in the local data directory.
 # We look for any files inside the chroma_db directory.
-CHROMA_DIR="/data/chroma_db"
+CHROMA_DIR="data/chroma_db"
 
 if [ -z "$(ls -A $CHROMA_DIR 2>/dev/null)" ]; then
     echo ""

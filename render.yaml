@@ -17,12 +17,5 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.0"
 
-    # --- Persistent Disk ---
-    # Stores ChromaDB vector index and SQLite memory database across deploys.
-    disk:
-      name: ramanujan-data
-      mountPath: /data
-      sizeGB: 1          # 1 GB — free tier
-
     # --- Health Check ---
     healthCheckPath: /

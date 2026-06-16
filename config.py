@@ -11,10 +11,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 CORPUS_DIR = BASE_DIR / "corpus"
 
-# On Render.com, use the persistent disk mounted at /data.
-# Locally, use the data/ folder inside the project.
-IS_PRODUCTION = os.getenv("RENDER", "").lower() == "true"
-DATA_DIR = Path("/data") if IS_PRODUCTION else BASE_DIR / "data"
+DATA_DIR = BASE_DIR / "data"
 
 CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 MEMORY_DB_PATH = DATA_DIR / "memory.db"
