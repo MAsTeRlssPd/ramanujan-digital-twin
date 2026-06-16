@@ -57,6 +57,11 @@ let currentMimeType = null;
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
+    // Auto-collapse sidebar on mobile
+    if (window.innerWidth <= 1024 && leftSidebarPanel) {
+        leftSidebarPanel.classList.add('collapsed');
+    }
+    
     if (!apiKey) {
         landingPage.style.display = 'flex';
         appContainer.style.display = 'none';
