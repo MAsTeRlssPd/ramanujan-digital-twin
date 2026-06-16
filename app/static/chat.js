@@ -57,11 +57,7 @@ let currentMimeType = null;
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
-    // Auto-collapse both sidebars on mobile/tablet
-    if (window.innerWidth <= 768) {
-        if (leftSidebarPanel) leftSidebarPanel.classList.add('collapsed');
-        if (memoryPanel) memoryPanel.classList.add('collapsed');
-    }
+
     
     if (!apiKey) {
         landingPage.style.display = 'flex';
@@ -250,13 +246,21 @@ function setupEventListeners() {
     // Toggle sidebars
     if(toggleSidebarBtn) {
         toggleSidebarBtn.addEventListener('click', () => {
-            leftSidebarPanel.classList.toggle('collapsed');
+            if (window.innerWidth <= 768) {
+                leftSidebarPanel.classList.toggle('mobile-open');
+            } else {
+                leftSidebarPanel.classList.toggle('collapsed');
+            }
         });
     }
 
     if(toggleMemoryBtn) {
         toggleMemoryBtn.addEventListener('click', () => {
-            memoryPanel.classList.toggle('collapsed');
+            if (window.innerWidth <= 768) {
+                memoryPanel.classList.toggle('mobile-open');
+            } else {
+                memoryPanel.classList.toggle('collapsed');
+            }
         });
     }
     

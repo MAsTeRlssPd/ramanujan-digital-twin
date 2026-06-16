@@ -720,29 +720,23 @@ body {
         box-shadow: 4px 0 25px rgba(0,0,0,0.15);
         transition: transform 0.3s ease;
     }
+    
+    /* Force hidden regardless of .collapsed on desktop */
     .left-sidebar {
         left: 0;
-        transform: translateX(-100%);  /* Hidden off-screen left */
+        transform: translateX(-100%) !important; 
     }
     .right-sidebar {
         right: 0;
-        transform: translateX(100%);   /* Hidden off-screen right */
+        transform: translateX(100%) !important;
     }
 
-    /* When NOT collapsed → slide in (visible) */
-    .sidebar.left-sidebar:not(.collapsed) {
-        transform: translateX(0);
+    /* ONLY visible when toggled open on mobile */
+    .left-sidebar.mobile-open {
+        transform: translateX(0) !important;
     }
-    .sidebar.right-sidebar:not(.collapsed) {
-        transform: translateX(0);
-    }
-
-    /* When collapsed → slide out (hidden) */
-    .sidebar.left-sidebar.collapsed {
-        transform: translateX(-100%);
-    }
-    .sidebar.right-sidebar.collapsed {
-        transform: translateX(100%);
+    .right-sidebar.mobile-open {
+        transform: translateX(0) !important;
     }
 
     /* --- Chat area takes full width --- */
