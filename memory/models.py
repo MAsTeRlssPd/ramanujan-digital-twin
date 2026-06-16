@@ -8,6 +8,7 @@ import config
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     summary TEXT DEFAULT ''
@@ -54,6 +55,13 @@ async def init_db():
     db = await get_db()
     try:
         await db.executescript(SCHEMA_SQL)
+        
+        # Migration: Add user_id to sessions if it doesn't exist
+        cursor = await db.execute("PRAGMA table_info(sessions)")
+        columns = [row["name"] for row in await cursor.fetchall()]
+        if "user_id" not in columns:
+            await db.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT DEFAULT 'default_user'")
+            
         await db.commit()
     finally:
         await db.close()

@@ -23,13 +23,13 @@ class MemoryManager:
 
     # --- Session Management ---
 
-    async def get_or_create_session(self, session_id: str) -> dict:
+    async def get_or_create_session(self, session_id: str, user_id: str) -> dict:
         """Get existing session or create a new one."""
         await self._ensure_init()
         db = await get_db()
         try:
             cursor = await db.execute(
-                "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
+                "SELECT * FROM sessions WHERE session_id = ? AND user_id = ?", (session_id, user_id)
             )
             row = await cursor.fetchone()
             if row:
@@ -42,15 +42,26 @@ class MemoryManager:
                 return dict(row)
             else:
                 await db.execute(
-                    "INSERT INTO sessions (session_id) VALUES (?)", (session_id,)
+                    "INSERT INTO sessions (session_id, user_id) VALUES (?, ?)", (session_id, user_id)
                 )
                 await db.commit()
                 return {
                     "session_id": session_id,
+                    "user_id": user_id,
                     "created_at": datetime.now().isoformat(),
                     "last_active": datetime.now().isoformat(),
                     "summary": "",
                 }
+        finally:
+            await db.close()
+
+    async def verify_session_owner(self, session_id: str, user_id: str) -> bool:
+        """Verify that a session belongs to the given user."""
+        await self._ensure_init()
+        db = await get_db()
+        try:
+            cursor = await db.execute("SELECT 1 FROM sessions WHERE session_id = ? AND user_id = ?", (session_id, user_id))
+            return bool(await cursor.fetchone())
         finally:
             await db.close()
 
@@ -203,7 +214,7 @@ class MemoryManager:
         finally:
             await db.close()
 
-    async def get_past_sessions(self, limit: int = 5) -> list[dict]:
+    async def get_past_sessions(self, user_id: str, limit: int = 5) -> list[dict]:
         """Get summaries of past sessions."""
         await self._ensure_init()
         db = await get_db()
@@ -211,10 +222,47 @@ class MemoryManager:
             cursor = await db.execute(
                 """SELECT session_id, created_at, last_active, summary
                 FROM sessions
+                WHERE user_id = ?
                 ORDER BY last_active DESC LIMIT ?""",
-                (limit,),
+                (user_id, limit),
             )
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+        finally:
+            await db.close()
+
+    async def delete_session(self, session_id: str, user_id: str):
+        """Delete a session and all its associated data (cascade)."""
+        await self._ensure_init()
+        db = await get_db()
+        try:
+            # Verify ownership
+            cursor = await db.execute("SELECT session_id FROM sessions WHERE session_id = ? AND user_id = ?", (session_id, user_id))
+            if not await cursor.fetchone():
+                return
+            
+            await db.execute(
+                "DELETE FROM long_term_memories WHERE session_id = ?", (session_id,)
+            )
+            await db.execute(
+                "DELETE FROM conversations WHERE session_id = ?", (session_id,)
+            )
+            await db.execute(
+                "DELETE FROM sessions WHERE session_id = ?", (session_id,)
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+    async def update_session_name(self, session_id: str, user_id: str, name: str):
+        """Update the display name (summary) of a session."""
+        await self._ensure_init()
+        db = await get_db()
+        try:
+            await db.execute(
+                "UPDATE sessions SET summary = ? WHERE session_id = ? AND user_id = ?",
+                (name[:80], session_id, user_id),
+            )
+            await db.commit()
         finally:
             await db.close()

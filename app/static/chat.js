@@ -9,6 +9,12 @@ if (!sessionId) {
     localStorage.setItem('ramanujan_session_id', sessionId);
 }
 
+let userId = localStorage.getItem('ramanujan_user_id');
+if (!userId) {
+    userId = crypto.randomUUID();
+    localStorage.setItem('ramanujan_user_id', userId);
+}
+
 let ws = null;
 let isStreaming = false;
 let currentMessageDiv = null;
@@ -19,7 +25,17 @@ let ttsAutoSpeak = localStorage.getItem('ramanujan_auto_voice') === 'true';
 let ttsSpeaking = false;
 let currentContentDiv = null;
 
+// ── API Key & Initialization State ───────────────────────────────
+let apiKey = localStorage.getItem('ramanujan_api_key');
+
 // DOM Elements
+const landingPage = document.getElementById('landing-page');
+const appContainer = document.getElementById('app-container');
+const apiKeyInput = document.getElementById('api-key-input');
+const toggleKeyBtn = document.getElementById('toggle-key-visibility');
+const apiKeyError = document.getElementById('api-key-error');
+const eyeIcon = document.getElementById('eye-icon');
+
 const messagesContainer = document.getElementById('chat-messages');
 const messageInput = document.getElementById('message-input');
 const sendButton = document.getElementById('send-button');
@@ -34,17 +50,78 @@ const imagePreview = document.getElementById('image-preview');
 const removeImageBtn = document.getElementById('remove-image-btn');
 const newChatBtn = document.getElementById('new-chat-btn');
 const sessionsContent = document.getElementById('sessions-content');
+const changeKeyBtn = document.getElementById('change-key-btn');
 
 let currentImageData = null;
 let currentMimeType = null;
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
+    if (!apiKey) {
+        landingPage.style.display = 'flex';
+        appContainer.style.display = 'none';
+        setupLandingPage();
+    } else {
+        landingPage.style.display = 'none';
+        appContainer.style.display = 'flex';
+        initializeApp();
+    }
+});
+
+function setupLandingPage() {
+    if (toggleKeyBtn) {
+        toggleKeyBtn.addEventListener('click', () => {
+            if (apiKeyInput.type === 'password') {
+                apiKeyInput.type = 'text';
+                eyeIcon.innerHTML = `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>`;
+            } else {
+                apiKeyInput.type = 'password';
+                eyeIcon.innerHTML = `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+            }
+        });
+    }
+}
+
+window.handleApiKeySubmit = function() {
+    const key = apiKeyInput.value.trim();
+    if (!key) {
+        apiKeyError.textContent = "Please enter an API key.";
+        apiKeyError.style.display = 'block';
+        return;
+    }
+    if (key.length < 20) {
+        apiKeyError.textContent = "Please enter a valid Google Gemini API key.";
+        apiKeyError.style.display = 'block';
+        return;
+    }
+    
+    apiKeyError.style.display = 'none';
+    localStorage.setItem('ramanujan_api_key', key);
+    apiKey = key;
+    
+    // Transition
+    landingPage.style.animation = "fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) reverse forwards";
+    setTimeout(() => {
+        landingPage.style.display = 'none';
+        appContainer.style.display = 'flex';
+        appContainer.style.animation = "fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1)";
+        initializeApp();
+    }, 300);
+}
+
+function initializeApp() {
     initWebSocket();
     loadHistory();
     loadSessions();
     setupEventListeners();
     initTTS();
+    
+    if (changeKeyBtn) {
+        changeKeyBtn.addEventListener('click', () => {
+            localStorage.removeItem('ramanujan_api_key');
+            location.reload();
+        });
+    }
     
     // Auto-resize input
     messageInput.addEventListener('input', function() {
@@ -150,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     // ─────────────────────────────────────────────────────────────────────────
-});
+}
 
 function setupEventListeners() {
     // Send message on button click
@@ -295,7 +372,9 @@ function handleSend() {
     ws.send(JSON.stringify({ 
         content: text,
         image_data: currentImageData,
-        mime_type: currentMimeType
+        mime_type: currentMimeType,
+        api_key: apiKey,
+        user_id: userId
     }));
     
     // Clear input
@@ -835,7 +914,9 @@ function animateHandwritingCanvas(canvas, text, animate = true) {
 // Fetch history
 async function loadHistory() {
     try {
-        const res = await fetch(`/api/history/${sessionId}`);
+        const res = await fetch(`/api/history/${sessionId}`, {
+            headers: { 'X-User-ID': userId }
+        });
         if (res.ok) {
             const data = await res.json();
             if (data.history && data.history.length > 0) {
@@ -871,7 +952,9 @@ async function loadHistory() {
 async function loadSessions() {
     if(!sessionsContent) return;
     try {
-        const res = await fetch(`/api/sessions`);
+        const res = await fetch(`/api/sessions`, {
+            headers: { 'X-User-ID': userId }
+        });
         if (res.ok) {
             const data = await res.json();
             if (data.sessions && data.sessions.length > 0) {
@@ -881,11 +964,24 @@ async function loadSessions() {
                     div.className = `session-item ${session.session_id === sessionId ? 'active' : ''}`;
                     const date = new Date(session.created_at).toLocaleString();
                     const summary = session.summary || 'New Conversation';
+                    
                     div.innerHTML = `
-                        <div class="session-date">${date}</div>
-                        <div class="session-summary">${escapeHTML(summary)}</div>
+                        <div class="session-info">
+                            <div class="session-date">${date}</div>
+                            <div class="session-summary">${escapeHTML(summary)}</div>
+                        </div>
+                        <div class="session-actions">
+                            <button class="rename-session-btn" title="Rename Conversation" data-id="${session.session_id}" data-name="${escapeHTML(summary)}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                            </button>
+                            <button class="delete-session-btn" title="Delete Conversation" data-id="${session.session_id}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            </button>
+                        </div>
                     `;
-                    div.addEventListener('click', () => {
+                    
+                    // Click handler for the item (not the buttons)
+                    div.querySelector('.session-info').addEventListener('click', () => {
                         sessionId = session.session_id;
                         localStorage.setItem('ramanujan_session_id', sessionId);
                         
@@ -899,6 +995,44 @@ async function loadSessions() {
                         if (window.fetchMemories) window.fetchMemories();
                         loadSessions(); // Re-render to update active state
                     });
+                    
+                    // Rename Handler
+                    div.querySelector('.rename-session-btn').addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const newName = prompt("Enter a new name for this conversation:", session.summary || '');
+                        if (newName && newName.trim()) {
+                            try {
+                                await fetch(`/api/sessions/${session.session_id}/name`, {
+                                    method: 'PATCH',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-User-ID': userId
+                                    },
+                                    body: JSON.stringify({name: newName})
+                                });
+                                loadSessions();
+                            } catch(err) { console.error("Failed to rename:", err); }
+                        }
+                    });
+                    
+                    // Delete Handler
+                    div.querySelector('.delete-session-btn').addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        if (confirm("Are you sure you want to delete this conversation? This will permanently erase the chat history and any associated memories Ramanujan formed during it.")) {
+                            try {
+                                await fetch(`/api/sessions/${session.session_id}`, { 
+                                    method: 'DELETE',
+                                    headers: { 'X-User-ID': userId }
+                                });
+                                if (sessionId === session.session_id) {
+                                    newChatBtn.click(); // Reset if deleted current
+                                } else {
+                                    loadSessions();
+                                }
+                            } catch(err) { console.error("Failed to delete:", err); }
+                        }
+                    });
+
                     sessionsContent.appendChild(div);
                 });
             }

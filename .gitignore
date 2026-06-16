@@ -4,9 +4,12 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Data (generated at runtime)
+# Data (generated at runtime — stored on Render persistent disk in production)
 data/chroma_db/
 data/memory.db
+
+# The corpus/ text files MUST be committed — they are used to build ChromaDB on deploy
+# Do NOT add corpus/ here
 
 # IDE
 .vscode/

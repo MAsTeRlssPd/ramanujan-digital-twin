@@ -31,7 +31,7 @@ Example output:
 
 
 async def extract_memories(
-    user_message: str, assistant_response: str
+    user_message: str, assistant_response: str, api_key: str = None
 ) -> list[dict]:
     """
     Extract memorable facts from a conversation exchange.
@@ -39,6 +39,7 @@ async def extract_memories(
     Args:
         user_message: What the user said.
         assistant_response: What Ramanujan replied.
+        api_key: Optional Gemini API key (falls back to config).
 
     Returns:
         List of dicts with 'category', 'key', 'value'.
@@ -47,7 +48,7 @@ async def extract_memories(
         return []
 
     try:
-        client = genai.Client(api_key=config.GOOGLE_API_KEY)
+        client = genai.Client(api_key=api_key or config.GOOGLE_API_KEY)
 
         prompt = f"""User message: {user_message}
 

@@ -29,7 +29,9 @@ async function fetchMemories() {
     if (!sessionId) return;
     
     try {
-        const res = await fetch(`/api/memories/${sessionId}`);
+        const res = await fetch(`/api/memories/${sessionId}`, {
+            headers: { 'X-User-ID': userId }
+        });
         if (!res.ok) throw new Error('Failed to fetch memories');
         
         const data = await res.json();

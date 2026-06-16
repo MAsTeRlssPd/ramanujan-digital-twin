@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ramanujan - Digital Twin</title>
+    <meta name="description" content="Converse with a Digital Twin of Srinivasa Ramanujan — the self-taught mathematical genius of India. Powered by RAG AI grounded in his actual notebooks and letters.">
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -22,10 +23,77 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/13.0.0/math.min.js"></script>
 
     <!-- Custom Styles -->
-    <link rel="stylesheet" href="/static/styles.css?v=7">
+    <link rel="stylesheet" href="/static/styles.css?v=8">
 </head>
 <body>
-    <div class="app-container">
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  LANDING PAGE — shown only when no API key is stored       -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div id="landing-page" class="landing-page" style="display:none;">
+        <div class="landing-bg-math" aria-hidden="true">
+            <span>∑</span><span>π</span><span>∞</span><span>∫</span><span>√</span>
+            <span>φ</span><span>Γ</span><span>ζ</span><span>∂</span><span>≡</span>
+            <span>∑</span><span>∞</span><span>π</span><span>∫</span><span>√</span>
+        </div>
+
+        <div class="landing-card">
+            <div class="landing-portrait-col">
+                <div class="landing-portrait-frame">
+                    <img src="/static/ramanujan.png" alt="Srinivasa Ramanujan" class="landing-portrait">
+                    <div class="landing-portrait-glow"></div>
+                </div>
+                <p class="landing-quote">"An equation has no meaning unless it expresses a thought of God."</p>
+            </div>
+
+            <div class="landing-form-col">
+                <div class="landing-header">
+                    <span class="landing-eyebrow">Digital Twin</span>
+                    <h1 class="landing-name">Srinivasa Ramanujan</h1>
+                    <p class="landing-dates">1887 – 1920 &nbsp;·&nbsp; Erode, Tamil Nadu</p>
+                    <p class="landing-description">
+                        Converse with the self-taught mathematical genius. Grounded in his actual notebooks, 
+                        letters to G.H. Hardy, and published papers.
+                    </p>
+                </div>
+
+                <form id="api-key-form" class="api-key-form" onsubmit="return false;">
+                    <label for="api-key-input" class="api-key-label">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                        Your Google Gemini API Key
+                    </label>
+                    <div class="api-key-input-row">
+                        <input 
+                            type="password" 
+                            id="api-key-input" 
+                            class="api-key-input" 
+                            placeholder="AIza..." 
+                            autocomplete="off"
+                            spellcheck="false"
+                        >
+                        <button type="button" id="toggle-key-visibility" class="toggle-key-btn" title="Show/hide key">
+                            <svg id="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                    </div>
+                    <p id="api-key-error" class="api-key-error" style="display:none;"></p>
+                    <button type="submit" id="begin-btn" class="begin-btn" onclick="handleApiKeySubmit()">
+                        <span>Begin Conversation</span>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </button>
+                    <p class="api-key-note">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        Your key is stored only in your browser's local storage and sent directly to Google's API. 
+                        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key →</a>
+                    </p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  MAIN APP — shown after API key is entered                 -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div id="app-container" class="app-container" style="display:none;">
         <!-- Header -->
         <header class="app-header">
             <button id="toggle-sidebar" class="icon-btn" title="Toggle Sidebar">
@@ -39,6 +107,9 @@
                 <button id="voice-toggle" class="voice-toggle" title="Auto-read responses aloud">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
                     <span>Voice</span>
+                </button>
+                <button id="change-key-btn" class="icon-btn" title="Change API Key">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
                 </button>
                 <button id="toggle-memory" class="icon-btn" title="Toggle Memory">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
@@ -121,7 +192,7 @@
             <!-- Right Sidebar: Memory -->
             <aside id="memory-panel" class="sidebar right-sidebar">
                 <div class="sidebar-header">
-                    <h2>Memory & Context</h2>
+                    <h2>Memory &amp; Context</h2>
                     <button id="refresh-memory" class="icon-btn small" title="Refresh">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                     </button>
@@ -137,8 +208,8 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/timeline.js?v=7"></script>
-    <script src="/static/memory.js?v=7"></script>
-    <script src="/static/chat.js?v=7"></script>
+    <script src="/static/timeline.js?v=8"></script>
+    <script src="/static/memory.js?v=8"></script>
+    <script src="/static/chat.js?v=8"></script>
 </body>
 </html>

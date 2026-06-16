@@ -5,7 +5,7 @@ WebSocket chat and REST API endpoints.
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Header, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -53,9 +53,13 @@ async def health_check():
 
 
 @app.get("/api/memories/{session_id}")
-async def get_memories(session_id: str):
+async def get_memories(session_id: str, x_user_id: str | None = Header(None)):
     """Get all memories for a session (for the dashboard)."""
+    if not x_user_id:
+        return JSONResponse({"error": "Missing X-User-ID header"}, status_code=400)
     try:
+        if not await memory_manager.verify_session_owner(session_id, x_user_id):
+            return JSONResponse({"error": "Unauthorized"}, status_code=403)
         memories = await memory_manager.get_all_memories_for_display(session_id)
         return {"session_id": session_id, "memories": memories}
     except Exception as e:
@@ -63,21 +67,54 @@ async def get_memories(session_id: str):
 
 
 @app.get("/api/history/{session_id}")
-async def get_history(session_id: str):
+async def get_history(session_id: str, x_user_id: str | None = Header(None)):
     """Get conversation history for a session."""
+    if not x_user_id:
+        return JSONResponse({"error": "Missing X-User-ID header"}, status_code=400)
     try:
-        history = await chat_handler.get_history(session_id)
+        # Note: chat_handler.get_history handles ownership check via get_or_create_session
+        # which will throw IntegrityError if trying to steal a session
+        history = await chat_handler.get_history(session_id, x_user_id)
         return {"session_id": session_id, "history": history}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/sessions")
-async def get_sessions():
+async def get_sessions(x_user_id: str | None = Header(None)):
     """Get all past sessions for the sidebar."""
+    if not x_user_id:
+        return JSONResponse({"error": "Missing X-User-ID header"}, status_code=400)
     try:
-        sessions = await memory_manager.get_past_sessions(limit=50)
+        sessions = await memory_manager.get_past_sessions(user_id=x_user_id, limit=50)
         return {"sessions": sessions}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str, x_user_id: str | None = Header(None)):
+    """Delete a session and all its associated data."""
+    if not x_user_id:
+        return JSONResponse({"error": "Missing X-User-ID header"}, status_code=400)
+    try:
+        await memory_manager.delete_session(session_id, x_user_id)
+        return {"status": "deleted", "session_id": session_id}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.patch("/api/sessions/{session_id}/name")
+async def rename_session(session_id: str, request: Request, x_user_id: str | None = Header(None)):
+    """Update the display name (summary) of a session."""
+    if not x_user_id:
+        return JSONResponse({"error": "Missing X-User-ID header"}, status_code=400)
+    try:
+        body = await request.json()
+        name = body.get("name", "").strip()
+        if name:
+            await memory_manager.update_session_name(session_id, x_user_id, name)
+        return {"status": "ok", "session_id": session_id, "name": name}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
