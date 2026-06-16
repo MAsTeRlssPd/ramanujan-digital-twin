@@ -699,12 +699,12 @@ body {
 @media (max-width: 768px) {
     /* --- Fix viewport height for mobile browsers --- */
     body {
-        height: 100dvh;
         height: 100vh; /* fallback */
+        height: 100dvh;
     }
     .app-container {
-        height: 100dvh;
         height: 100vh; /* fallback */
+        height: 100dvh;
     }
 
     /* --- Header --- */
