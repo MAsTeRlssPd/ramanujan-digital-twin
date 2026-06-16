@@ -34,14 +34,16 @@ if static_dir.exists():
 
 @app.get("/")
 async def serve_index():
-    """Serve the main chat interface."""
+    """Serve the main chat interface without caching."""
     index_path = static_dir / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
-    return JSONResponse(
-        {"error": "Frontend not found. Ensure app/static/index.html exists."},
-        status_code=404,
-    )
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+        return FileResponse(str(index_path), headers=headers)
+    raise HTTPException(status_code=404, detail="index.html not found")
 
 
 # --- REST API ---
