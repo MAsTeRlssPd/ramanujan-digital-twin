@@ -57,9 +57,10 @@ let currentMimeType = null;
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
-    // Auto-collapse sidebar on mobile
-    if (window.innerWidth <= 1024 && leftSidebarPanel) {
-        leftSidebarPanel.classList.add('collapsed');
+    // Auto-collapse both sidebars on mobile/tablet
+    if (window.innerWidth <= 768) {
+        if (leftSidebarPanel) leftSidebarPanel.classList.add('collapsed');
+        if (memoryPanel) memoryPanel.classList.add('collapsed');
     }
     
     if (!apiKey) {
