@@ -1080,67 +1080,12 @@ async function loadSessions() {
     }
 }
 
-// ── Voice / TTS Engine ───────────────────────────────────────────
+// ── Voice / TTS Engine (Server-Side via edge-tts) ──────────────
 
-let ttsQueue = [];      // Queue of sentence chunks to speak
-let ttsCurrentBtn = null; // Currently active speak button
+let ttsCurrentBtn = null;
+let ttsAudio = null;  // Current HTML5 Audio element
 
 function initTTS() {
-    if (!('speechSynthesis' in window)) {
-        console.warn('Web Speech API not supported in this browser');
-        const toggleBtn = document.getElementById('voice-toggle');
-        if (toggleBtn) toggleBtn.style.display = 'none';
-        return;
-    }
-    
-    // Load voices (some browsers load them asynchronously)
-    function pickVoice() {
-        const voices = speechSynthesis.getVoices();
-        if (!voices.length) return;
-        
-        // Log all voices for debugging
-        console.log('Available TTS voices:', voices.map(v => `${v.name} (${v.lang}) ${v.localService ? '[local]' : '[remote]'}`));
-        
-        // Prioritize Indian English (en-IN) Male voices for Ramanujan
-        const priorities = [
-            // 1. Microsoft Ravi (en-IN, male)
-            v => /ravi/i.test(v.name) && v.lang.startsWith('en'),
-            // 2. Any en-IN Male voice (Android/iOS/Chrome)
-            v => v.lang === 'en-IN' && /male/i.test(v.name) && !/female/i.test(v.name),
-            // 3. Any en-IN voice that doesn't explicitly sound female
-            v => v.lang === 'en-IN' && !/female|woman|zira|eva|neerja|susan|hazel|veena/i.test(v.name),
-            // 4. Any en-GB Male voice (British accent fallback)
-            v => v.lang === 'en-GB' && /male/i.test(v.name) && !/female/i.test(v.name),
-            // 5. Google UK English Male (Chrome)
-            v => /Google UK English Male/i.test(v.name),
-            // 6. Microsoft David (en-US, male)
-            v => /david/i.test(v.name) && v.lang.startsWith('en'),
-            // 7. Microsoft Mark (en-US, male)
-            v => /mark/i.test(v.name) && v.lang.startsWith('en'),
-            // 8. Any male voice in English
-            v => v.lang.startsWith('en') && /male/i.test(v.name) && !/female/i.test(v.name),
-            // 9. Any English voice that is explicitly NOT female
-            v => v.lang.startsWith('en') && !/female|woman|zira|eva|neerja|susan|hazel|veena/i.test(v.name),
-            // 10. Absolute fallback: any English voice
-            v => v.lang.startsWith('en')
-        ];
-        
-        for (const test of priorities) {
-            const match = voices.find(test);
-            if (match) { ttsVoice = match; break; }
-        }
-        
-        if (!ttsVoice && voices.length > 0) ttsVoice = voices[0];
-        if (ttsVoice) {
-            console.log('✅ TTS voice selected:', ttsVoice.name, '(' + ttsVoice.lang + ')');
-        } else {
-            console.warn('⚠️ No TTS voices available');
-        }
-    }
-    
-    pickVoice();
-    speechSynthesis.onvoiceschanged = pickVoice;
-    
     // Wire up global auto-speak toggle
     const toggleBtn = document.getElementById('voice-toggle');
     if (toggleBtn) {
@@ -1154,6 +1099,7 @@ function initTTS() {
             if (!ttsAutoSpeak) stopSpeaking();
         });
     }
+    console.log('✅ TTS Engine: Server-side (edge-tts, en-IN-PrabhatNeural)');
 }
 
 /**
@@ -1168,166 +1114,113 @@ function stripForSpeech(text) {
     clean = clean.replace(/∑/g, 'sum of');
     clean = clean.replace(/∏/g, 'product of');
     clean = clean.replace(/√/g, 'square root of');
-    clean = clean.replace(/≈/g, 'approximately equals');
-    clean = clean.replace(/≠/g, 'does not equal');
+    clean = clean.replace(/≈/g, 'approximately equal to');
+    clean = clean.replace(/≠/g, 'not equal to');
     clean = clean.replace(/≤/g, 'less than or equal to');
     clean = clean.replace(/≥/g, 'greater than or equal to');
-    clean = clean.replace(/×/g, 'times');
-    clean = clean.replace(/÷/g, 'divided by');
+    clean = clean.replace(/\^(\d+)/g, ' to the power of $1');
     
-    // Read simple inline math naturally: $x = 5$ → "x equals 5"
-    clean = clean.replace(/\$([^$]{1,30})\$/g, (_, expr) => {
-        let readable = expr.trim();
-        readable = readable.replace(/\^(\d+)/g, ' to the power $1');
-        readable = readable.replace(/\^{([^}]+)}/g, ' to the power $1');
-        readable = readable.replace(/_(\d)/g, ' sub $1');
-        readable = readable.replace(/_{([^}]+)}/g, ' sub $1');
-        readable = readable.replace(/\\frac{([^}]+)}{([^}]+)}/g, '$1 over $2');
-        readable = readable.replace(/\\sqrt{([^}]+)}/g, 'square root of $1');
-        readable = readable.replace(/\\pi/g, 'pi');
-        readable = readable.replace(/\\infty/g, 'infinity');
-        readable = readable.replace(/\\sum/g, 'sum of');
-        readable = readable.replace(/\\[a-zA-Z]+/g, ''); // strip remaining LaTeX commands
-        readable = readable.replace(/[{}]/g, '');
-        readable = readable.replace(/=/g, ' equals ');
-        return readable;
-    });
-    
-    // Remove complex display math blocks but acknowledge them
-    clean = clean.replace(/\$\$[\s\S]*?\$\$/g, '. The following is a mathematical formula. ');
-    clean = clean.replace(/\\\[[\s\S]*?\\\]/g, '. The following is a mathematical formula. ');
-    clean = clean.replace(/\\\([\s\S]*?\\\)/g, '');
-    
-    // Remove markdown formatting but keep the text
-    clean = clean.replace(/```[\s\S]*?```/g, '. ');
-    clean = clean.replace(/`([^`]+)`/g, '$1');
+    // Remove markdown formatting
     clean = clean.replace(/\*\*(.*?)\*\*/g, '$1');
     clean = clean.replace(/\*(.*?)\*/g, '$1');
-    clean = clean.replace(/#{1,6}\s*/g, '');
-    clean = clean.replace(/[-*]\s+/g, '. ');  // bullet points → pauses
-    clean = clean.replace(/\d+\.\s+/g, '. ');  // numbered lists → pauses
+    clean = clean.replace(/`([^`]+)`/g, '$1');
+    clean = clean.replace(/```[\s\S]*?```/g, '');
     
-    // Clean up whitespace and punctuation
-    clean = clean.replace(/\n+/g, '. ');
-    clean = clean.replace(/\.{2,}/g, '.');
-    clean = clean.replace(/\.\s*\./g, '.');
-    clean = clean.replace(/\s{2,}/g, ' ');
+    // Remove LaTeX
+    clean = clean.replace(/\$\$[\s\S]*?\$\$/g, '');
+    clean = clean.replace(/\$[^$]+\$/g, '');
+    clean = clean.replace(/\\\(.*?\\\)/g, '');
+    clean = clean.replace(/\\\[[\s\S]*?\\\]/g, '');
     
-    return clean.trim();
+    // Remove source references and various tags
+    clean = clean.replace(/【[^】]*】/g, '');
+    clean = clean.replace(/\[Source:[^\]]*\]/g, '');
+    clean = clean.replace(/<[^>]+>/g, '');
+    
+    // Collapse whitespace
+    clean = clean.replace(/\s+/g, ' ').trim();
+    
+    return clean;
 }
 
 /**
- * Split text into sentence-sized chunks.
- * Browsers cut off utterances longer than ~200-300 chars,
- * so we break at sentence boundaries.
+ * Speak text aloud using the server-side TTS endpoint.
  */
-function splitIntoChunks(text) {
-    // Split on sentence-ending punctuation followed by space
-    const raw = text.match(/[^.!?]+[.!?]+[\s]*/g) || [text];
-    const chunks = [];
-    let current = '';
-    
-    for (const sentence of raw) {
-        if ((current + sentence).length > 180) {
-            if (current.trim()) chunks.push(current.trim());
-            current = sentence;
-        } else {
-            current += sentence;
-        }
-    }
-    if (current.trim()) chunks.push(current.trim());
-    
-    return chunks;
-}
-
-/**
- * Speak text aloud, sentence by sentence.
- */
-function speakText(rawText, button = null) {
-    if (!('speechSynthesis' in window)) return;
-    
+async function speakText(rawText, button = null) {
     // Stop any current speech first
-    ttsQueue = [];
-    speechSynthesis.cancel();
+    stopSpeaking();
     
     const clean = stripForSpeech(rawText);
     console.log('TTS clean text length:', clean.length, 'preview:', clean.substring(0, 100));
     if (!clean) return;
     
-    ttsQueue = splitIntoChunks(clean);
-    console.log('TTS chunks:', ttsQueue.length);
     ttsCurrentBtn = button;
     
     if (button) {
         button.classList.add('speaking');
         button.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="6" y="4" width="4" height="16"></rect>
-                <rect x="14" y="4" width="4" height="16"></rect>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
             </svg>
-            Stop
+            Loading...
         `;
     }
     
-    // CRITICAL: Chromium's cancel() is async. We MUST wait before calling speak()
-    // otherwise the new utterance gets silently swallowed.
-    setTimeout(() => {
-        speakNextChunk();
-    }, 120);
-}
-
-/**
- * Speak the next chunk in the queue.
- */
-function speakNextChunk() {
-    if (ttsQueue.length === 0) {
+    try {
+        const response = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: clean }),
+        });
+        
+        if (!response.ok) {
+            throw new Error(`TTS server error: ${response.status}`);
+        }
+        
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        ttsAudio = new Audio(audioUrl);
+        
+        if (button) {
+            button.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <rect x="6" y="4" width="4" height="16"></rect>
+                    <rect x="14" y="4" width="4" height="16"></rect>
+                </svg>
+                Stop
+            `;
+        }
+        
+        ttsAudio.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            finishSpeaking();
+        };
+        
+        ttsAudio.onerror = (e) => {
+            console.warn('TTS audio playback error:', e);
+            URL.revokeObjectURL(audioUrl);
+            finishSpeaking();
+        };
+        
+        await ttsAudio.play();
+        
+    } catch (err) {
+        console.error('TTS error:', err);
         finishSpeaking();
-        return;
     }
-    
-    const chunk = ttsQueue.shift();
-    if (!chunk.trim()) {
-        speakNextChunk();
-        return;
-    }
-    
-    console.log('TTS Speaking:', chunk);
-    
-    const utterance = new SpeechSynthesisUtterance(chunk);
-    // Anti-Garbage-Collection fix for Chrome/Safari
-    window.currentUtterance = utterance;
-    
-    if (ttsVoice) utterance.voice = ttsVoice;
-    utterance.lang = ttsVoice ? ttsVoice.lang : 'en-IN';  // Ensure Indian English pronunciation
-    utterance.rate = 0.88;    // Slightly slower for clear, measured delivery
-    utterance.pitch = 0.9;    // Slightly deeper, warm male tone
-    utterance.volume = 1.0;
-    
-    utterance.onend = () => {
-        // Small pause between sentences for natural flow
-        setTimeout(speakNextChunk, 150);
-    };
-    
-    utterance.onerror = (e) => {
-        console.warn('TTS chunk error:', e.error);
-        // Try the next chunk anyway
-        setTimeout(speakNextChunk, 100);
-    };
-    
-    speechSynthesis.speak(utterance);
 }
 
 /**
  * Stop all speech and reset UI.
  */
 function stopSpeaking() {
-    ttsQueue = [];
-    if ('speechSynthesis' in window) {
-        if (speechSynthesis.speaking || speechSynthesis.pending) {
-            speechSynthesis.cancel();
-        }
-        // Sometimes the engine gets stuck in 'paused' state, resume clears it
-        if (speechSynthesis.paused) speechSynthesis.resume();
+    if (ttsAudio) {
+        ttsAudio.pause();
+        ttsAudio.currentTime = 0;
+        ttsAudio = null;
     }
     
     if (ttsCurrentBtn) {
@@ -1335,7 +1228,6 @@ function stopSpeaking() {
         resetVoiceBtnLabel(ttsCurrentBtn);
         ttsCurrentBtn = null;
     }
-    // Reset any other speaking buttons
     document.querySelectorAll('.voice-btn.speaking').forEach(b => {
         b.classList.remove('speaking');
         resetVoiceBtnLabel(b);
@@ -1368,28 +1260,25 @@ function addActionBar(messageDiv, rawText, sources) {
     bar.className = 'message-action-bar';
     bar.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);';
     
-    // Listen button
-    if ('speechSynthesis' in window) {
-        const btn = document.createElement('button');
-        btn.className = 'voice-btn';
-        btn.title = 'Read aloud';
-        resetVoiceBtnLabel(btn);
-        
-        btn.addEventListener('click', () => {
-            if (btn.classList.contains('speaking')) {
-                stopSpeaking();
-                return;
-            }
-            speakText(rawText, btn);
-        });
-        
-        bar.appendChild(btn);
-    }
+    // Listen button (always available — TTS is server-side now)
+    const btn = document.createElement('button');
+    btn.className = 'voice-btn';
+    btn.title = 'Read aloud';
+    resetVoiceBtnLabel(btn);
     
-    // Source link pills (right beside Listen)
+    btn.addEventListener('click', () => {
+        if (btn.classList.contains('speaking')) {
+            stopSpeaking();
+            return;
+        }
+        speakText(rawText, btn);
+    });
+    
+    bar.appendChild(btn);
+    
+    // Source link pills
     if (sources && sources.length > 0) {
         const uniqueSources = [...new Set(sources.map(s => s.source))];
-        // Deduplicate by URL too
         const seenUrls = new Set();
         
         uniqueSources.forEach(src => {
@@ -1409,7 +1298,6 @@ function addActionBar(messageDiv, rawText, sources) {
             bar.appendChild(link);
         });
     } else {
-        // Debug fallback to prove rendering works even if sources is empty
         const link = document.createElement('a');
         link.className = 'source-link-pill';
         link.style.opacity = '0.5';

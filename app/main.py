@@ -3,11 +3,14 @@ FastAPI application — serves the frontend and provides
 WebSocket chat and REST API endpoints.
 """
 import json
+import io
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Header, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+
+import edge_tts
 
 import config
 from app.chat_handler import ChatHandler
@@ -164,6 +167,39 @@ async def get_corpus_file(filename: str):
         {"error": "Corpus file not found."},
         status_code=404,
     )
+
+# --- Text-to-Speech (Server-Side) ---
+
+TTS_VOICE = "en-IN-PrabhatNeural"  # Indian English Male neural voice
+
+@app.post("/api/tts")
+async def text_to_speech(request: Request):
+    """Generate speech audio from text using edge-tts (Indian English male voice)."""
+    try:
+        body = await request.json()
+        text = body.get("text", "").strip()
+        if not text:
+            return JSONResponse({"error": "No text provided"}, status_code=400)
+
+        # Limit text length to prevent abuse
+        if len(text) > 5000:
+            text = text[:5000]
+
+        communicate = edge_tts.Communicate(text, TTS_VOICE)
+        audio_buffer = io.BytesIO()
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_buffer.write(chunk["data"])
+
+        audio_buffer.seek(0)
+        return StreamingResponse(
+            audio_buffer,
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": "inline; filename=speech.mp3"},
+        )
+    except Exception as e:
+        print(f"TTS error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # --- WebSocket Chat ---
