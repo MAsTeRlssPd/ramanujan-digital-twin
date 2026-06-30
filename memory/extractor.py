@@ -15,12 +15,15 @@ Extract facts in these categories:
 - topic_discussed: Mathematical or biographical topics the user asked about
 - user_interest: What the user seems interested in or curious about
 - user_knowledge: What level of mathematical knowledge the user seems to have
-- personal_detail: Any personal information the user shared about themselves
+- personal_detail: Any personal information the user shared about themselves. 
+  IMPORTANT: For personal details, you MUST use standard, consistent keys: 
+  use EXACTLY "name" (for user's name), "age", "occupation", "location", "hobby", etc. 
+  Do not use variations like "user_name" or "first_name".
 
 Return a JSON array of objects with "category", "key", and "value" fields.
 If there is nothing worth remembering, return an empty array [].
 Keep each fact concise (under 50 words).
-Extract at most 3 facts per exchange.
+Extract at most 3 facts per exchange. Always overwrite/update information using the exact same key if it was mentioned before.
 
 Example output:
 [
