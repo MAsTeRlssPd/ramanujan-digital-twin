@@ -1101,24 +1101,27 @@ function initTTS() {
         // Log all voices for debugging
         console.log('Available TTS voices:', voices.map(v => `${v.name} (${v.lang}) ${v.localService ? '[local]' : '[remote]'}`));
         
-        // Simplified voice selection — reliability over preference, but strictly prefer MALE
-        // Windows default voices are the most reliable for TTS
+        // Prioritize Indian English (en-IN) Male voices for Ramanujan
         const priorities = [
-            // Microsoft David (en-US, male) — most reliable on Windows
-            v => /david/i.test(v.name) && v.lang.startsWith('en'),
-            // Microsoft Mark (en-US, male)
-            v => /mark/i.test(v.name) && v.lang.startsWith('en'),
-            // Microsoft Ravi (en-IN, male)
+            // 1. Microsoft Ravi (en-IN, male)
             v => /ravi/i.test(v.name) && v.lang.startsWith('en'),
-            // Google UK English Male (Chrome)
+            // 2. Any en-IN Male voice (Android/iOS/Chrome)
+            v => v.lang === 'en-IN' && /male/i.test(v.name) && !/female/i.test(v.name),
+            // 3. Any en-IN voice that doesn't explicitly sound female
+            v => v.lang === 'en-IN' && !/female|woman|zira|eva|neerja|susan|hazel|veena/i.test(v.name),
+            // 4. Any en-GB Male voice (British accent fallback)
+            v => v.lang === 'en-GB' && /male/i.test(v.name) && !/female/i.test(v.name),
+            // 5. Google UK English Male (Chrome)
             v => /Google UK English Male/i.test(v.name),
-            // Any en-US male
-            v => v.lang === 'en-US' && /male/i.test(v.name) && !/female/i.test(v.name),
-            // Any male voice
-            v => /male/i.test(v.name) && !/female/i.test(v.name),
-            // Any English voice that is explicitly NOT female
-            v => v.lang.startsWith('en') && !/female|woman|zira|eva|neerja|susan|hazel/i.test(v.name),
-            // Absolute fallback: any English voice
+            // 6. Microsoft David (en-US, male)
+            v => /david/i.test(v.name) && v.lang.startsWith('en'),
+            // 7. Microsoft Mark (en-US, male)
+            v => /mark/i.test(v.name) && v.lang.startsWith('en'),
+            // 8. Any male voice in English
+            v => v.lang.startsWith('en') && /male/i.test(v.name) && !/female/i.test(v.name),
+            // 9. Any English voice that is explicitly NOT female
+            v => v.lang.startsWith('en') && !/female|woman|zira|eva|neerja|susan|hazel|veena/i.test(v.name),
+            // 10. Absolute fallback: any English voice
             v => v.lang.startsWith('en')
         ];
         
